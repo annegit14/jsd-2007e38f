@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171c" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Job Search">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Anne's Job Search</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="lock" class="lock" hidden>
+  <form id="lockForm" class="lock-card" autocomplete="off">
+    <img src="icons/icon-192.png" alt="" width="72" height="72">
+    <h1>Job Search</h1>
+    <p class="muted">This dashboard is encrypted. Enter the passphrase to open it.</p>
+    <label class="sr" for="pw">Passphrase</label>
+    <input id="pw" type="password" placeholder="Passphrase" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+    <label class="check"><input id="remember" type="checkbox" checked> Remember on this device</label>
+    <button type="submit" class="btn primary" id="unlockBtn">Unlock</button>
+    <p id="lockMsg" class="lock-msg" role="alert"></p>
+  </form>
+</div>
+
+<header class="topbar">
+  <h1 id="title">Job Search</h1>
+  <span id="updated" class="muted small"></span>
+</header>
+
+<main id="main" tabindex="-1">
+  <p class="muted center pad">Loading…</p>
+</main>
+
+<nav class="tabbar" id="tabbar" aria-label="Sections">
+  <a href="#home" data-tab="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></a>
+  <a href="#opps" data-tab="opps"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Jobs</span></a>
+  <a href="#top" data-tab="top"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.5 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg><span>Top</span></a>
+  <a href="#tracker" data-tab="tracker"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3"/></svg><span>Tracker</span></a>
+  <a href="#strategy" data-tab="strategy"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm3.5 5.5l-2 5-5 2 2-5z"/></svg><span>Strategy</span></a>
+  <a href="#legal" data-tab="legal"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg><span>Legal</span></a>
+</nav>
+<script src="app.js"></script>
+</body>
+</html>
