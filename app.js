@@ -291,7 +291,7 @@
   const loadKey = () => idb("readonly", (s) => s.get("key")).catch(() => null);
   const forgetKey = () => idb("readwrite", (s) => s.delete("key")).catch(() => {});
   async function deriveKey(pw, env) {
-    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(pw).toLowerCase().replace(/\s+/g, "")), "PBKDF2", false, ["deriveKey"]);
     return crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: b64(env.salt), iterations: env.iter }, base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
   }
   async function decrypt(key, env) {
@@ -330,7 +330,7 @@
         $("#pw").value = "";
         setData(data);
       } catch (e) {
-        $("#lockMsg").textContent = "That passphrase didn't work. Try again.";
+        $("#lockMsg").textContent = "That password didn't work. Try again.";
       } finally { btn.disabled = false; btn.textContent = "Unlock"; }
     };
   }
