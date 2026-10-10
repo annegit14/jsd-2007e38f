@@ -5,10 +5,10 @@
   const main = $("#main");
   let D = null;                       // decrypted / loaded data
   const ui = {                        // view state (kept across tab switches)
-    opps: { q: "", lane: "", path: "", tier: "", sort: "rank", watch: false },
-    top: "overall",
-    tr: { q: "", status: "", source: "", period: "May–Oct 2026", limit: 50 },
-    open: new Set(),
+    opps: { q: "", lane: "", path: "", tier: "", sort: "rank", watch: false, mail: false },
+    list: "overall",                  // overall | speed | pay | fit | reliability | all
+    tr: { q: "", status: "", source: "", period: "0", limit: 50 },
+    open: new Set(), groups: {}, doc: null,
   };
 
   /* ---------------- helpers ---------------- */
@@ -75,186 +75,176 @@
   }
 
   /* ---------------- scores ---------------- */
-  const SC = [["speed", "Speed"], ["pay", "Pay"], ["fit", "Fit"], ["reliability", "Reliability"], ["odds", "Interview odds"]];
-  const scoreBars = (o, hl) => `<div class="scores">${SC.map(([k, lab]) => {
-    const v = o.scores?.[k];
-    const n = v == null ? 0 : Math.round(v);
-    return `<span class="lab">${lab}</span><span class="bar" role="img" aria-label="${lab} ${v ?? "n/a"} of 5"><i class="s${n}" style="width:${v == null ? 0 : (v / 5) * 100}%"></i></span><span class="val${hl === k ? " hl" : ""}">${v ?? "–"}</span>`;
-  }).join("")}</div>`;
+  const SC = [["speed", "Spd", "Speed"], ["pay", "Pay", "Pay"], ["fit", "Fit", "Fit"], ["reliability", "Rel", "Reliability"], ["odds", "Odds", "Interview odds"]];
+  const badges = (o, hl) => o.sc ? `<div class="badges">${SC.map(([k, ab, lab], i) => {
+    const v = o.sc[i];
+    return `<span class="b s${v == null ? 0 : Math.round(v)}${hl === k ? " hl" : ""}" title="${lab}" aria-label="${lab} ${v ?? "n/a"} of 5">${ab} <b>${v ?? "–"}</b></span>`;
+  }).join("")}</div>` : "";
+  const legalShort = (s) => String(s || "").split(/ - | \(/)[0];
+  const legalCls = (s) => (/^pass/i.test(s || "") ? "good" : /^fail/i.test(s || "") ? "bad" : s ? "ok" : "");
   const tierCls = (t) => ({ A: "good", B: "ok", C: "bad" }[String(t || "").toUpperCase()] || "");
-  const legalCls = (s) => (/pass/i.test(s || "") ? "good" : /fail/i.test(s || "") ? "bad" : s ? "ok" : "");
 
   function oppCard(o, ctx, hl, pos) {
-    const id = ctx + ":" + o.id;
-    const open = ui.open.has(id);
-    const chips = [
-      o.tier && `<span class="chip ${tierCls(o.tier)}">Tier ${esc(o.tier)}</span>`,
-      o.legal && `<span class="chip ${legalCls(o.legal)}">${esc(o.legal)}</span>`,
-      o.path && `<span class="chip info">Path ${esc(o.path)}</span>`,
-      o.lane && `<span class="chip">${esc(o.lane)}</span>`,
-      o.pay_text && `<span class="chip">${esc(o.pay_text)}</span>`,
-      o.rank_score != null && `<span class="chip">Score ${o.rank_score}</span>`,
-      o.watchlist && `<span class="chip bad">Watchlist: not cleared</span>`,
-    ].filter(Boolean).join("");
+    const id = ctx + ":" + o.id, open = ui.open.has(id);
+    const meta = [
+      o.tier && `<span class="t ${tierCls(o.tier)}">Tier ${esc(o.tier)}</span>`,
+      o.legal && `<span class="t ${legalCls(o.legal)}">${esc(legalShort(o.legal))}</span>`,
+      o.pay && o.pay !== "n/a" && esc(o.pay),
+      (o.emails || []).length && `<span title="Has a contact email">✉</span>`,
+      o.w && `<span class="t bad">Watchlist</span>`,
+    ].filter(Boolean).join(" · ");
+    const r = pos || o.rank;
     return `<article class="card opp${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
-      <div class="head">
-        ${pos ? `<div class="rank">#${pos}<small>${o.rank ? "overall " + o.rank : "list"}</small></div>` : `<div class="rank${o.rank ? "" : " none"}">${o.rank ? "#" + o.rank : "–"}<small>rank</small></div>`}
-        <div style="min-width:0"><h3>${esc(o.company)}</h3>${o.role ? `<p class="role">${esc(o.role)}</p>` : ""}</div>
-        <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-      </div>
-      <div class="chips">${chips}</div>
-      ${scoreBars(o, hl)}
+      <div class="head"><div class="rank${r ? "" : " none"}" title="${pos ? "List position" + (o.rank ? ", overall #" + o.rank : "") : "Overall rank"}">${r || "–"}</div>
+        <div class="ttl"><h3>${esc(o.co)}</h3>${o.role ? `<p class="role">${esc(o.role)}</p>` : ""}</div></div>
+      <div class="meta">${meta}</div>
+      ${badges(o, hl)}
       ${open ? oppDetail(o) : ""}
     </article>`;
   }
   function oppDetail(o) {
     const mail = (o.emails || []).map((e) => `<a class="btn primary" href="mailto:${encodeURIComponent(e).replace(/%40/g, "@")}">✉ ${esc(e)}</a>`).join("");
-    const post = safeUrl(o.posting_url) ? `<a class="btn" href="${esc(o.posting_url)}" target="_blank" rel="noopener noreferrer">Open posting ↗</a>` : "";
-    const rows = [
-      ["Why these scores", o.reasoning], ["Apply path", o.apply_path], ["Contact email", o.email_raw],
-      ["Email status", o.email_status], ["Named contact", o.named_contact], ["Resume to use", o.resume],
-      ["Email angle", o.email_angle], ["Work model", o.work_model], ["Open role?", o.open],
-      ["Weighted score", o.weighted], ["Date verified", o.date_verified],
-      ...(o.fields || []).filter(([h]) => !/url$/i.test(h)),
-    ].filter(([, v]) => v != null && v !== "");
-    const links = (o.links || []).filter((l) => safeUrl(l.url) && l.url !== o.posting_url)
-      .map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a> <span class="muted small">${esc(new URL(l.url).hostname)}</span></li>`).join("");
+    const post = safeUrl(o.url) ? `<a class="btn" href="${esc(o.url)}" target="_blank" rel="noopener noreferrer">Posting ↗</a>` : "";
+    const contact = [o.who, o.est].filter(Boolean).join(" · ");
+    const rows = [["Why these scores", o.why], ["How to apply", o.apply], ["Resume", o.resume], ["Email angle", o.angle],
+      ["Contact", contact], ["Legal", o.legal], ["Work", o.work], ["Lane / path", [o.lane, o.path && "Path " + o.path].filter(Boolean).join(" · ")],
+      ["Reviews", o.rev]].filter(([, v]) => v);
+    const links = (o.links || []).filter(safeUrl).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(new URL(u).hostname.replace(/^www\./, ""))} ↗</a>`).join(" · ");
     return `<div class="detail" data-stop>
-      <div class="actions">${mail}${post}</div>
-      ${o.red_flags ? `<div class="warn"><strong>Red flags / legal:</strong> ${linkify(o.red_flags)}</div>` : ""}
-      <dl style="margin-top:12px">${rows.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
-      ${links ? `<dt style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-top:12px">Links</dt><ul style="padding-left:18px;margin:4px 0">${links}</ul>` : ""}
+      ${mail || post ? `<div class="actions">${mail}${post}</div>` : ""}
+      ${o.flags ? `<div class="warn"><strong>Watch out:</strong> ${linkify(o.flags)}</div>` : ""}
+      <dl>${rows.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
+      ${links ? `<p class="small muted" style="margin:8px 0 0">More: ${links}</p>` : ""}
     </div>`;
   }
 
   /* ---------------- views ---------------- */
+  const byId = (id) => D._idx[id];
   function viewHome() {
-    const stats = (D.stats || []).map((s) => `<div class="stat"><div class="l">${esc(s.label)}</div><div class="v">${esc(s.value)}</div>${s.caption ? `<div class="c">${esc(s.caption)}</div>` : ""}</div>`).join("");
-    const pend = (D.pending || []).map((p) => `<div class="pending"><div class="when">${esc(p.when)}</div><div>${linkify(p.text)}</div></div>`).join("");
+    const stats = (D.stats || []).map((s) => `<div class="stat"><div class="v">${esc(s.v)}</div><div class="l">${esc(s.l)}</div></div>`).join("");
+    const pend = (D.pending || []).map((p, i) => { const id = "pend:" + i, open = ui.open.has(id);
+      return `<li class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><b>${esc(p.when)}</b><span class="nx">${linkify(p.text)}</span></li>`; }).join("");
     const groups = {};
-    (D.action_now || []).forEach((a) => { const k = a.Priority || "Other"; (groups[k] = groups[k] || []).push(a); });
-    const act = Object.entries(groups).map(([k, rows]) => `<h2 class="sec">${esc(k)} · ${rows.length}</h2>` + rows.map((a, i) => actionCard(a, "act:" + k + i)).join("")).join("");
-    const top3 = (D.top?.overall || []).slice(0, 3).map((id) => byId(id)).filter(Boolean);
-    return `
-      ${pend ? `<h2 class="sec">Pending right now</h2><div class="card">${pend}</div>` : ""}
-      ${stats ? `<h2 class="sec">Key stats</h2><div class="stats">${stats}</div>` : ""}
-      ${D.recap_md ? `<h2 class="sec">Today's recap</h2><details class="fold"><summary>${esc((D.recap_md.match(/^#\s+(.*)/m) || [, "Recap"])[1])}</summary>${md(D.recap_md.replace(/^#\s+.*\n/, ""))}</details>` : ""}
-      ${top3.length ? `<h2 class="sec">Top opportunities</h2>${top3.map((o) => oppCard(o, "home")).join("")}<a class="btn more" href="#top">See all top lists</a>` : ""}
-      ${act ? `<h2 class="sec" style="font-size:15px;color:var(--ink)">Action now (${(D.action_now || []).length})</h2>${act}` : ""}
-      ${footer()}`;
+    (D.act || []).forEach((a) => { const k = a.pr || "Other"; (groups[k] = groups[k] || []).push(a); });
+    const act = Object.keys(groups).sort().map((k, gi) => {
+      const rows = groups[k], key = "g:" + k;
+      const isOpen = ui.groups[key] ?? (/^[01]\b/.test(k) || gi < 2);
+      return `<details class="fold grp" data-g="${esc(key)}"${isOpen ? " open" : ""}><summary>${esc(k.replace(/^\d+\s*-\s*/, ""))}<span class="n">${rows.length}</span></summary>
+        ${rows.map((a, i) => actionCard(a, "act:" + k + i)).join("")}</details>`;
+    }).join("");
+    return `${stats ? `<div class="stats">${stats}</div>` : ""}
+      ${pend ? `<h2 class="sec">Next up</h2><ul class="card pending">${pend}</ul>` : ""}
+      ${act ? `<h2 class="sec">Act now · ${(D.act || []).length}</h2>${act}` : ""}
+      <a class="btn more" href="#opps/overall">Top 25 opportunities →</a>`;
   }
+  const dueChip = (due) => { if (!due) return ""; const over = due <= new Date().toISOString().slice(0, 10); return `<span class="chip ${over ? "bad" : "info"}">${over ? "Due " : ""}${fmtDate(due)}</span>`; };
   function actionCard(a, id) {
     const open = ui.open.has(id);
-    const due = a["Follow-up Due"];
-    const overdue = due && due <= new Date().toISOString().slice(0, 10);
-    return `<article class="card opp app${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
-      <div class="top"><h3>${esc(a.Company)}</h3>${due ? `<span class="chip ${overdue ? "bad" : "info"}">Due ${fmtDate(due)}</span>` : ""}</div>
-      <p class="role">${esc(a.Role || "")}</p>
-      <div class="chips">${a.Status ? `<span class="chip">${esc(a.Status)}</span>` : ""}${a.Fit ? `<span class="chip ${a.Fit === "High" ? "good" : ""}">Fit ${esc(a.Fit)}</span>` : ""}</div>
-      ${a["Next Action"] ? `<p style="margin:8px 0 0;font-size:14.5px"><strong>Next:</strong> ${linkify(a["Next Action"])}</p>` : ""}
-      ${open ? rowDetail(a, ["Company", "Role", "Status", "Fit", "Next Action", "Priority", "Follow-up Due"]) : ""}
+    return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
+      <div class="top"><h3>${esc(a.co)}</h3>${dueChip(a.due)}</div>
+      ${a.nx ? `<p class="nx">${linkify(a.nx)}</p>` : ""}
+      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc]], a.u) : ""}
     </article>`;
   }
-  function rowDetail(a, skip) {
-    const rows = Object.entries(a).filter(([k, v]) => !k.startsWith("_") && !skip.includes(k) && v != null && v !== "" && !/^link/i.test(k));
-    const links = (a._links || []).filter((l) => safeUrl(l.url)).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("");
-    return `<div class="detail" data-stop>${links ? `<div class="actions">${links}</div>` : ""}<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${/date|due/i.test(k) ? fmtDate(v) : linkify(v)}</dd>`).join("")}</dl></div>`;
+  function rowDetail(rows, url) {
+    rows = rows.filter(([, v]) => v);
+    return `<div class="detail" data-stop><dl class="grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${/^Applied|^Due/.test(k) ? v : linkify(v)}</dd>`).join("")}</dl>
+      ${safeUrl(url) ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(new URL(url).hostname.replace(/^www\./, ""))} ↗</a>` : ""}</div>`;
   }
 
-  const byId = (id) => D._idx[id];
-  const SORTS = { rank: "Overall rank", rank_score: "Rank score", speed: "Speed", pay: "Pay", fit: "Fit", reliability: "Reliability", odds: "Interview odds" };
+  const SORTS = { rank: "Rank", speed: "Speed", pay: "Pay", fit: "Fit", reliability: "Reliability", odds: "Interview odds" };
+  const LISTS = [["overall", "Top 25"], ["speed", "Speed"], ["pay", "Pay"], ["fit", "Fit"], ["reliability", "Reliability"], ["all", "All"]];
   function sortVal(o, k) {
-    if (k === "rank") return o.rank == null ? 1e9 : o.rank;
-    if (k === "rank_score") return -(o.rank_score ?? -1e9);
-    return -(o.scores?.[k] ?? -1e9);
+    if (k === "rank") return o.rank == null ? 1e9 - (o.rs ?? 0) : o.rank;
+    const i = SC.findIndex(([x]) => x === k);
+    return -((o.sc || [])[i] ?? -1e9);
   }
   function viewOpps() {
-    const s = ui.opps, all = D.opportunities || [];
-    const hasWatch = all.some((o) => o.watchlist);
-    let list = all.filter((o) => (s.watch || !o.watchlist)
+    const all = D.opps || [];
+    if (!LISTS.find(([k]) => k === ui.list)) ui.list = "overall";
+    const seg = `<div class="seg" role="tablist">${LISTS.map(([k, l]) => `<button data-list="${k}" aria-pressed="${k === ui.list}">${l}${k === "all" ? ` <small>${all.filter((o) => !o.w).length}</small>` : ""}</button>`).join("")}</div>`;
+    const note = D.score_note ? `<details class="note"><summary>How scores work</summary><p>${esc(D.score_note)}</p></details>` : "";
+    if (ui.list !== "all") {
+      const ids = (D.top || {})[ui.list] || [];
+      const hl = ui.list === "overall" ? null : ui.list;
+      return `${seg}${ids.map((id, i) => { const o = byId(id); return o ? oppCard(o, "l-" + ui.list, hl, i + 1) : ""; }).join("") || `<p class="muted center pad">Nothing on this list yet.</p>`}${note}`;
+    }
+    const s = ui.opps;
+    let list = all.filter((o) => (s.watch || !o.w) && (!s.mail || (o.emails || []).length)
       && (!s.lane || o.lane === s.lane) && (!s.path || o.path === s.path) && (!s.tier || o.tier === s.tier));
     if (s.q) { const q = s.q.toLowerCase(); list = list.filter((o) => JSON.stringify(o).toLowerCase().includes(q)); }
     list.sort((a, b) => sortVal(a, s.sort) - sortVal(b, s.sort) || sortVal(a, "rank") - sortVal(b, "rank"));
-    const sel = (key, label, vals) => `<select data-f="opps.${key}" aria-label="${label}">${opt("", "All " + label.toLowerCase(), s[key])}${vals.map((v) => opt(v, v, s[key])).join("")}</select>`;
-    return `<div class="controls">
+    const sel = (key, label, vals) => `<select data-f="opps.${key}" aria-label="${label}">${opt("", label, s[key])}${vals.map((v) => opt(v, v, s[key])).join("")}</select>`;
+    return `${seg}<div class="controls">
         <input type="search" placeholder="Search company, role, notes…" value="${esc(s.q)}" data-f="opps.q" aria-label="Search opportunities">
-        ${sel("lane", "Lanes", uniq(all.map((o) => o.lane)))}
-        ${sel("path", "Paths", uniq(all.map((o) => o.path)))}
-        ${sel("tier", "Tiers", uniq(all.map((o) => o.tier)))}
         <select data-f="opps.sort" aria-label="Sort by">${Object.entries(SORTS).map(([k, v]) => opt(k, "Sort: " + v, s.sort)).join("")}</select>
-        ${hasWatch ? `<label class="check" style="flex:1 1 100%;justify-content:flex-start"><input type="checkbox" data-f="opps.watch"${s.watch ? " checked" : ""}> Include watchlist (not cleared)</label>` : ""}
+        ${sel("lane", "Any lane", uniq(all.map((o) => o.lane)))}
+        ${sel("tier", "Tier", uniq(all.map((o) => o.tier)))}
+        ${sel("path", "Path", uniq(all.map((o) => o.path)))}
+        <label class="check"><input type="checkbox" data-f="opps.mail"${s.mail ? " checked" : ""}> Has email</label>
+        ${all.some((o) => o.w) ? `<label class="check"><input type="checkbox" data-f="opps.watch"${s.watch ? " checked" : ""}> Watchlist</label>` : ""}
       </div>
-      <p class="count">${list.length} of ${all.filter((o) => s.watch || !o.watchlist).length} opportunities · tap a card for details</p>
-      ${list.map((o) => oppCard(o, "opps", ["rank", "rank_score"].includes(s.sort) ? null : s.sort)).join("") || `<p class="muted center pad">No matches.</p>`}
-      ${(D.opp_notes || []).length ? `<p class="footer">${D.opp_notes.map(esc).join("<br>")}</p>` : ""}`;
+      <p class="count">${list.length} shown · tap for details</p>
+      ${list.map((o) => oppCard(o, "all", s.sort === "rank" ? null : s.sort)).join("") || `<p class="muted center pad">No matches.</p>`}${note}`;
   }
-  function viewTop() {
-    const metas = (D.top_meta || []).filter((m) => m.count > 0 || m.key !== "watchlist");
-    if (!metas.find((m) => m.key === ui.top)) ui.top = metas[0]?.key;
-    const m = metas.find((x) => x.key === ui.top);
-    const ids = (D.top || {})[ui.top] || [];
-    const hl = { speed: "speed", pay: "pay", fit: "fit", reliability: "reliability", odds: "odds" }[ui.top];
-    return `<div class="seg" role="tablist">${metas.map((x) => `<button data-top="${x.key}" aria-pressed="${x.key === ui.top}">${esc(x.label)}</button>`).join("")}</div>
-      ${m ? `<p class="count">${esc(m.title)}${m.sheet ? "" : " · sheet not in workbook yet"}</p>` : ""}
-      ${ids.map((id, i) => { const o = byId(id); return o ? oppCard(o, "top-" + ui.top, hl, ui.top === "overall" ? null : i + 1) : ""; }).join("") || `<p class="muted center pad">Nothing on this list yet.</p>`}`;
-  }
-  const statusCls = (s) => (/interview/i.test(s) ? "good" : /reject/i.test(s) ? "bad" : /viewed/i.test(s) ? "info" : /no response|unknown/i.test(s) ? "" : "ok");
+
+  const PERIODS = ["Since May 1", "Before May", "Saved, not applied"];
+  const statusCls = (s) => (/interview/i.test(s) ? "good" : /reject|scam/i.test(s) ? "bad" : /viewed/i.test(s) ? "info" : /saved/i.test(s) ? "ok" : "");
   function viewTracker() {
-    const s = ui.tr;
-    const saved = (D.saved || []).map((x) => ({ ...x, Status: "Saved – not applied", "Date Applied": x["Date Saved"], _period: "Saved (not applied)" }));
-    const all = (D.applications || []).concat(saved);
-    const periods = uniq(all.map((a) => a._period));
-    let list = all.filter((a) => (!s.period || a._period === s.period) && (!s.status || a.Status === s.status) && (!s.source || a.Source === s.source));
-    if (s.q) { const q = s.q.toLowerCase(); list = list.filter((a) => [a.Company, a.Role, a.Notes, a.Category].join(" ").toLowerCase().includes(q)); }
-    list.sort((a, b) => String(b["Date Applied"] || "").localeCompare(String(a["Date Applied"] || "")));
-    const pool = all.filter((a) => !s.period || a._period === s.period);
-    const sel = (key, label, vals) => `<select data-f="tr.${key}" aria-label="${label}">${opt("", "All " + label.toLowerCase(), s[key])}${vals.map((v) => opt(v, v, s[key])).join("")}</select>`;
+    const s = ui.tr, all = D.apps || [];
+    let list = all.filter((a) => (s.period === "" || String(a.p) === s.period) && (!s.status || a.st === s.status) && (!s.source || a.src === s.source));
+    if (s.q) { const q = s.q.toLowerCase(); list = list.filter((a) => [a.co, a.role, a.nt, a.nx].join(" ").toLowerCase().includes(q)); }
+    list.sort((a, b) => String(b.d || "").localeCompare(String(a.d || "")));
+    const pool = all.filter((a) => s.period === "" || String(a.p) === s.period);
+    const sel = (key, label, vals) => `<select data-f="tr.${key}" aria-label="${label}">${opt("", label, s[key])}${vals.map((v) => opt(v, v, s[key])).join("")}</select>`;
     const shown = list.slice(0, s.limit);
     return `<div class="controls">
-        <input type="search" placeholder="Search company or role…" value="${esc(s.q)}" data-f="tr.q" aria-label="Search applications">
-        <select data-f="tr.period" aria-label="Period">${opt("", "All periods", s.period)}${periods.map((v) => opt(v, v, s.period)).join("")}</select>
-        ${sel("status", "Statuses", uniq(pool.map((a) => a.Status)))}
-        ${sel("source", "Sources", uniq(pool.map((a) => a.Source)))}
+        <input type="search" placeholder="Search company, role, notes…" value="${esc(s.q)}" data-f="tr.q" aria-label="Search applications">
+        <select data-f="tr.period" aria-label="Period">${opt("", "All periods", s.period)}${PERIODS.map((v, i) => opt(i, v, s.period)).join("")}</select>
+        ${sel("status", "Any status", uniq(pool.map((a) => a.st)))}
+        ${sel("source", "Any source", uniq(pool.map((a) => a.src)))}
       </div>
-      <p class="count">${list.length} shown · newest first</p>
-      ${shown.map((a, i) => appCard(a, "tr:" + (a.Company || "") + (a["Date Applied"] || "") + i)).join("") || `<p class="muted center pad">No matches.</p>`}
+      <p class="count">${list.length} applications · newest first</p>
+      <div class="card list">${shown.map((a, i) => appRow(a, "tr:" + (a.co || "") + (a.d || "") + i)).join("") || `<p class="muted center pad">No matches.</p>`}</div>
       ${list.length > shown.length ? `<button class="btn more" data-more>Show ${Math.min(50, list.length - shown.length)} more</button>` : ""}`;
   }
-  function appCard(a, id) {
+  function appRow(a, id) {
     const open = ui.open.has(id);
-    return `<article class="card opp app${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
-      <div class="top"><h3>${esc(a.Company)}</h3><span class="date">${fmtDate(a["Date Applied"])}</span></div>
-      <p class="role">${esc(a.Role || "")}</p>
-      <div class="chips">${a.Status ? `<span class="chip ${statusCls(a.Status)}">${esc(a.Status)}</span>` : ""}${a.Source ? `<span class="chip">${esc(a.Source)}</span>` : ""}${a.Fit ? `<span class="chip ${a.Fit === "High" ? "good" : a.Fit === "Exclude" ? "bad" : ""}">Fit ${esc(a.Fit)}</span>` : ""}</div>
-      ${open ? rowDetail(a, ["Company", "Role", "Status", "Source", "Fit"]) : ""}
+    return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
+      <div class="top"><h3>${esc(a.co)}</h3><span class="date">${fmtDate(a.d)}</span></div>
+      <div class="sub">${a.st ? `<span class="chip ${statusCls(a.st)}">${esc(a.st.replace(/ \(.*\)$/, ""))}</span>` : ""}<span class="role">${esc(a.role || "")}</span></div>
+      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Next", a.nx], ["Notes", a.nt], ["Fit", a.fit], ["Source", a.src], ["Where", a.loc], ["Due", a.due && fmtDate(a.due)]], a.u) : ""}
     </article>`;
   }
-  const viewStrategy = () => D.strategy?.md ? `<div class="card">${md(D.strategy.md)}</div><p class="footer">Source: ${esc(D.strategy.source)}</p>` : `<p class="muted center pad">Strategy file not found.</p>`;
-  const viewLegal = () => `
-    <h2 class="sec">When the time comes: contractor checklist</h2>
-    <div class="card">${D.legal?.checklist_md ? md(D.legal.checklist_md) : '<p class="muted">Not found.</p>'}</div>
-    <h2 class="sec">Legal and audit corrections</h2>
-    <div class="card">${D.legal?.corrections_md ? md(D.legal.corrections_md) : '<p class="muted">Not found.</p>'}</div>`;
-  function footer() {
-    const miss = (D.missing || []);
-    return `<div class="footer">Data built ${esc(D.generated)}.${miss.length ? `<br>Missing: ${miss.map(esc).join("; ")}` : ""}
-      ${ENC ? `<br><button class="btn" data-lock style="margin-top:8px">Lock &amp; forget on this device</button>` : ""}</div>`;
+
+  function viewDocs() {
+    const docs = D.docs || [];
+    const miss = D.missing || [];
+    return `${docs.map((d) => `<details class="fold doc" data-doc="${esc(d.k)}"${ui.doc === d.k ? " open" : ""}>
+        <summary><span><b>${esc(d.t)}</b>${d.s ? `<span class="prev">${esc(d.s)}</span>` : ""}</span></summary>${md(d.md)}</details>`).join("") || `<p class="muted center pad">No documents found.</p>`}
+      <div class="footer">Built ${esc(D.generated)}${miss.length ? ` · Missing: ${miss.map(esc).join("; ")}` : ""}
+        ${ENC ? `<button class="btn sm" data-lock>Lock &amp; forget this device</button>` : ""}</div>`;
   }
 
   /* ---------------- router ---------------- */
-  const VIEWS = { home: ["Home", viewHome], opps: ["Opportunities", viewOpps], top: ["Top Lists", viewTop], tracker: ["Tracker", viewTracker], strategy: ["Strategy", viewStrategy], legal: ["Legal", viewLegal] };
+  const VIEWS = { home: ["Today", viewHome], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
+  const ALIAS = { top: "opps", strategy: "docs", legal: "docs" };
   function route() {
-    const [tab, sub] = (location.hash.slice(1) || "home").split("/");
+    let [tab, sub] = (location.hash.slice(1) || "home").split("/");
+    if (tab === "strategy" || tab === "legal") sub = sub || tab;
+    if (tab === "top") sub = sub || "overall";
+    tab = ALIAS[tab] || tab;
+    if (tab === "opps" && sub) ui.list = sub;
+    if (tab === "docs") ui.doc = sub || ui.doc;
     const v = VIEWS[tab] || VIEWS.home;
-    if (tab === "top" && sub) ui.top = sub;
     document.querySelectorAll(".tabbar a").forEach((a) => (a.dataset.tab === (VIEWS[tab] ? tab : "home") ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
     $("#title").textContent = v[0];
-    render(true);
+    render(true, tab);
   }
   let curTab = null;
-  function render(scrollTop) {
+  function render(scrollTop, tab) {
     if (!D) return;
-    const tab = (location.hash.slice(1) || "home").split("/")[0];
+    tab = tab || ALIAS[(location.hash.slice(1) || "home").split("/")[0]] || (location.hash.slice(1) || "home").split("/")[0];
     const focusF = document.activeElement?.dataset?.f, pos = document.activeElement?.selectionStart;
     main.innerHTML = (VIEWS[tab] || VIEWS.home)[1]();
     if (focusF) { const el = main.querySelector(`[data-f="${focusF}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} } }
@@ -263,13 +253,17 @@
   }
   main.addEventListener("click", (e) => {
     const t = e.target;
-    if (t.closest("a") || t.closest("[data-stop]")) return;
-    const top = t.closest("[data-top]"); if (top) { ui.top = top.dataset.top; history.replaceState(null, "", "#top/" + ui.top); render(); return; }
+    if (t.closest("a") || t.closest("[data-stop]") || t.closest("summary")) return;
+    const l = t.closest("[data-list]"); if (l) { ui.list = l.dataset.list; history.replaceState(null, "", "#opps/" + ui.list); render(); return; }
     if (t.closest("[data-more]")) { ui.tr.limit += 50; render(); return; }
     if (t.closest("[data-lock]")) { forgetKey().then(() => location.reload()); return; }
     const card = t.closest("[data-id]");
     if (card) { const id = card.dataset.id; ui.open.has(id) ? ui.open.delete(id) : ui.open.add(id); render(); }
   });
+  main.addEventListener("toggle", (e) => {     // remember which folds are open across re-renders
+    const g = e.target.dataset?.g; if (g) ui.groups[g] = e.target.open;
+    const d = e.target.dataset?.doc; if (d) { if (e.target.open) ui.doc = d; else if (ui.doc === d) ui.doc = null; }
+  }, true);
   main.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-id]")) { e.preventDefault(); e.target.click(); } });
   const onFilter = (e) => {
     const f = e.target.dataset.f; if (!f) return;
@@ -300,7 +294,13 @@
   }
   function setData(d) {
     D = d; D._idx = {};
-    (D.opportunities || []).forEach((o) => (D._idx[o.id] = o));
+    (D.opps || []).forEach((o) => (D._idx[o.id] = o));
+    // expand the compact tracker encoding (shared-string indexes + URL prefix codes)
+    const W = D.dict || [], P = D.upfx || {};
+    (D.apps || []).forEach((a) => {
+      for (const k of ["st", "src", "nx", "nt", "loc", "fit"]) if (typeof a[k] === "number") a[k] = W[a[k]];
+      if (a.u && /^[a-z]\|/.test(a.u) && P[a.u[0]]) a.u = P[a.u[0]] + a.u.slice(2);
+    });
     $("#updated").textContent = "Updated " + (D.generated || "").slice(0, 10);
     $("#lock").hidden = true;
     route();
