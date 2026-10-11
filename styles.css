@@ -208,3 +208,57 @@ details.rmv{padding-bottom:4px;margin-top:10px}
 .toast.show{opacity:1;transform:none}
 .toast .undo{font:inherit;font-weight:700;color:#7dd3fc;background:none;border:0;min-height:40px;padding:0 6px;cursor:pointer}
 .toast[hidden]{display:none}
+/* permanent delete */
+.btn.danger{background:transparent;color:var(--bad);border-color:var(--bad)}
+.abtns{display:flex;gap:6px;flex:0 0 auto}
+.archtag .btn.danger{margin:0;min-height:30px}
+.autodel-box{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:6px 12px;margin:0 0 10px}
+.autodel-box p{margin:0 0 4px}
+.autodel{color:var(--ink)}
+.settings-line{margin:6px 0 2px}
+.settings-line .autodel{font-size:12.5px;color:var(--muted);min-height:30px}
+/* email draft buttons */
+.em-to{flex:1 1 100%;margin:0 0 -2px}
+.noemail{display:inline-flex;align-items:center;min-height:34px;margin-right:4px}
+.actions .btn.primary.sm{min-height:40px}
+/* my notes */
+.mynote{margin:4px 0 10px}
+.mynote label{display:flex;justify-content:space-between;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-bottom:4px}
+.mynote .saved{text-transform:none;letter-spacing:0;color:var(--good, #2e7d32);font-weight:600}
+.mynote textarea{width:100%;box-sizing:border-box;font:inherit;font-size:16px;min-height:66px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:8px 10px;resize:vertical}
+.notepv{margin:4px 0 0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ---------- color theme (v14): one accent per tab, soft stat tiles. All pairs checked for WCAG AA. ---------- */
+:root{
+  --t-home:#0f766e; --t-opps:#4338ca; --t-tracker:#b45309; --t-docs:#7e22ce;
+  --s1-bg:#ccfbf1; --s1-ink:#134e4a; --s2-bg:#e0e7ff; --s2-ink:#312e81;
+  --s3-bg:#fef3c7; --s3-ink:#78350f; --s4-bg:#ffe4e6; --s4-ink:#881337;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --t-home:#2dd4bf; --t-opps:#a5b4fc; --t-tracker:#fbbf24; --t-docs:#d8b4fe;
+    --s1-bg:#123c3a; --s1-ink:#ccfbf1; --s2-bg:#25265a; --s2-ink:#e0e7ff;
+    --s3-bg:#45300d; --s3-ink:#fef3c7; --s4-bg:#4c1d2b; --s4-ink:#ffe4e6;
+  }
+}
+body[data-tab=home]{--accent:var(--t-home)}
+body[data-tab=opps]{--accent:var(--t-opps)}
+body[data-tab=tracker]{--accent:var(--t-tracker)}
+body[data-tab=docs]{--accent:var(--t-docs)}
+@media (prefers-color-scheme: dark){ body[data-tab]{--accent-ink:#111318} }
+body[data-tab]{--accent-ink:#ffffff}
+@media (prefers-color-scheme: dark){ body[data-tab]{--accent-ink:#111318} }
+.topbar{border-bottom:2px solid var(--accent)}
+.topbar h1{color:var(--accent)}
+h2.sec{color:var(--accent)}
+.listhead{color:var(--accent)}
+.tabbar a[data-tab=home]{--accent:var(--t-home)} .tabbar a[data-tab=opps]{--accent:var(--t-opps)}
+.tabbar a[data-tab=tracker]{--accent:var(--t-tracker)} .tabbar a[data-tab=docs]{--accent:var(--t-docs)}
+.tabbar a[aria-current=page]{color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
+details.fold.grp>summary{border-left:3px solid var(--accent)}
+.stat{border:0}
+.stat:nth-child(1){background:var(--s1-bg);color:var(--s1-ink)} .stat:nth-child(2){background:var(--s2-bg);color:var(--s2-ink)}
+.stat:nth-child(3){background:var(--s3-bg);color:var(--s3-ink)} .stat:nth-child(4){background:var(--s4-bg);color:var(--s4-ink)}
+.stat .l{color:inherit;opacity:.9}
+/* rejection banner */
+.banner{background:var(--bad-bg);border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);border-radius:var(--radius);padding:10px 12px;margin:2px 0 10px;color:var(--ink)}
+.banner p{margin:0 0 6px} .banner .btn.sm{margin:2px 0 0}
