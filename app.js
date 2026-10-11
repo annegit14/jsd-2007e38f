@@ -207,16 +207,17 @@
   }
 
   // Period filter. Saved-but-not-applied jobs are their own view so they never inflate application counts.
-  const PERIODS = [["0", "Since May 1"], ["1", "Before May"], ["01", "All applied"], ["2", "Saved, not applied"]];
+  const PERIODS = [["0", "Since May 1"], ["1", "Before May"], ["01", "All applied"], ["2", "Saved, not applied"], ["A", "Archived"]];
   const statusCls = (s) => (/interview/i.test(s) ? "good" : /reject|scam/i.test(s) ? "bad" : /viewed/i.test(s) ? "info" : /saved/i.test(s) ? "ok" : "");
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
   let TR = null;   // built once at load from the original data; never mutated by filters
   function trackerBase() {
     if (TR) return TR;
     const base = Object.freeze((D.apps || []).map((a) => Object.freeze({ ...a })));
-    const inP = (a, p) => p.includes(String(a.p ?? 1));
+    // archived = older US applications Anne set aside: only in the "Archived" period, never in the default views/counts
+    const inP = (a, p) => (p === "A" ? !!a.arch : !a.arch && p.includes(String(a.p ?? 1)));
     const counts = Object.fromEntries(PERIODS.map(([v]) => [v, base.filter((a) => inP(a, v)).length]));
-    const main = base.filter((a) => inP(a, "0"));   // dropdown options: fixed at load, from the default view
+    const main = base.filter((a) => String(a.p ?? 1) === "0");   // dropdown options: fixed at load (since-May rows)
     TR = { base, inP, counts, statuses: Object.freeze(uniq(main.map((a) => a.st))), sources: Object.freeze(uniq(main.map((a) => a.src))) };
     return TR;
   }
