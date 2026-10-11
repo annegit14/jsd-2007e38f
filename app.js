@@ -587,87 +587,8 @@
           ${open ? `<div class="detail" data-stop><dl class="grid"><dt>To</dt><dd>${esc(x.to || "")}${x.person ? " (" + esc(x.person) + ")" : ""}</dd><dt>Subject</dt><dd>${esc(x.subject || "")}</dd></dl>
             ${x.text ? `<pre class="mailtext">${esc(x.text)}</pre>` : ""}${x.text_note ? `<p class="small muted">${esc(x.text_note)}</p>` : ""}</div>` : ""}</article>`; }).join("") || `<p class="muted center pad">Nothing waiting for approval.</p>`}</div>`;
   }
-
-  /* ---------------- v24 Drafts (TEST): local drafts, Approve & copy, sent log ---------------- */
-  const DRKEY = "ag-dash-drafts";   // drafts stay on this device until approved
-  let DR = (() => { try { const v = JSON.parse(localStorage.getItem(DRKEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } })();
-  const saveDR = () => { try { localStorage.setItem(DRKEY, JSON.stringify(DR)); } catch (e) {} };
-  const DSIG = "Anne Gyorgy, RN, BSN\nannegyorgy@gmail.com\nThailand: +66 92 270 7704\nUS: +1 919-214-0404";
-  const newId = () => "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  function approvedText(d) {   // the exact message Anne pastes into her Grok Bot chat
-    return ["APPROVED EMAIL — please send from my Gmail",
-      "To: " + (d.to || "").trim(),
-      "Subject: " + (d.subject || "").trim(),
-      "Reply-to thread: " + ((d.threadId || "").trim() || (d.messageId || "").trim() || "none"),
-      "Company: " + (d.company || "").trim(),
-      "---", d.body || "", "---END---"].join("\n");
-  }
-  window.agApprovedText = approvedText;   // used by the headless test
-  function replyDraft(r) {
-    const subj = String(r.subject || "").trim(), re = /^re:/i.test(subj) ? subj : "Re: " + subj;
-    const quoted = String(r.quoted || "").split("\n").map((l) => "> " + l).join("\n");
-    const body = `${(r.draft || "Hello,\n\n").trim()}\n\nBest regards,\n${DSIG}\n\n--- Original message ---\nFrom: ${r.from || r.company || ""}${r.date ? "\nDate: " + r.date : ""}\nSubject: ${subj}\n\n${quoted}`;
-    return { id: newId(), mode: "reply", sample: !!r.sample, to: r.from || "", subject: re, body, threadId: r.threadId || "", messageId: r.messageId || "", company: r.company || "", status: "draft", at: new Date().toISOString() };
-  }
-  function blankDraft() { return { id: newId(), mode: "new", to: "", subject: "", body: `Hello,\n\n\n\nBest regards,\n${DSIG}`, threadId: "", messageId: "", company: "", status: "draft", at: new Date().toISOString() }; }
-  const isSent = (d) => (D.sent || []).some((x) => String(x.to || "").toLowerCase() === String(d.to || "").trim().toLowerCase() && String(x.subject || "").trim().toLowerCase() === String(d.subject || "").trim().toLowerCase());
-  function copyText(txt) {
-    const fallback = () => { try { const ta = document.createElement("textarea"); ta.value = txt; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.top = "-1000px"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, txt.length); const ok = document.execCommand("copy"); ta.remove(); return ok; } catch (e) { return false; } };
-    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) return navigator.clipboard.writeText(txt).then(() => true, () => fallback());
-    return Promise.resolve(fallback());
-  }
-  const showTxt = new Set();
-  function viewDrafts() {
-    const reps = (D.replies || []).filter((r) => r && r.quoted !== undefined || (r && r.subject)).concat(D.reply_samples || []);
-    const repl = reps.length ? `<h2 class="sec">Replies to answer</h2><div class="card list">${reps.map((r, i) => `<div class="rep-pick"><div><b>${esc(r.company || r.from)}</b> ${r.sample ? `<span class="chip sample">Sample</span>` : ""}<br><span class="small muted">${esc(r.subject || "")}${r.date ? " · " + fmtDate(r.date) : ""}</span></div><button type="button" class="btn sm primary" data-drrep="${i}">Draft reply</button></div>`).join("")}</div>` : "";
-    const stLab = (d) => (isSent(d) ? ["sent", "Sent ✓"] : d.status === "approved" ? ["approved", "Approved — waiting to send"] : ["draft", "Draft"]);
-    const cards = DR.slice().reverse().map((d) => { const [sc, sl] = stLab(d);
-      return `<div class="card draft st-${sc}" data-stop>
-        <div class="top"><span class="chip st-chip-${sc}">${sl}</span>${d.sample ? `<span class="chip sample">Sample</span>` : ""}<span class="small muted">${d.mode === "reply" ? "Reply" : "New"} · ${fmtDate(String(d.at || "").slice(0, 10))}</span></div>
-        <label>To</label><input type="email" data-dr="to" data-did="${d.id}" value="${esc(d.to)}" placeholder="name@company.com" autocapitalize="off">
-        <label>Subject</label><input type="text" data-dr="subject" data-did="${d.id}" value="${esc(d.subject)}">
-        <label>Body</label><textarea data-dr="body" data-did="${d.id}">${esc(d.body)}</textarea>
-        <details${d.threadId || d.messageId || d.company ? " open" : ""}><summary>Thread info (optional)</summary>
-          <label>Company</label><input type="text" data-dr="company" data-did="${d.id}" value="${esc(d.company)}">
-          <label>Gmail thread id</label><input type="text" data-dr="threadId" data-did="${d.id}" value="${esc(d.threadId)}" autocapitalize="off">
-          <label>Gmail message id</label><input type="text" data-dr="messageId" data-did="${d.id}" value="${esc(d.messageId)}" autocapitalize="off"></details>
-        <div class="actions"><button type="button" class="btn primary sm" data-drok="${d.id}">Approve &amp; copy</button><button type="button" class="btn sm" data-drshow="${d.id}">${showTxt.has(d.id) ? "Hide text" : "Show text"}</button><button type="button" class="btn sm danger" data-drdel="${d.id}">Delete</button></div>
-        ${showTxt.has(d.id) ? `<div class="showtext"><label>Copy this text by hand if the button didn't work</label><textarea readonly data-selectall>${esc(approvedText(d))}</textarea></div>` : ""}
-      </div>`; }).join("");
-    const S = D.sent || [], MBC = { Gmail: "G", iCloud: "I", "Yahoo-legacy": "Y", Platform: "P" };
-    const sent = `<h2 class="sec">Sent log</h2><div class="card list">${S.map((x) => `<div class="sentrow"><div class="top"><b>${esc(x.company || x.to)}</b>${mbChip(MBC[x.mailbox])}<span class="date">${fmtDate(x.date)}</span></div>
-        <p>${esc(x.subject || "")}</p><p class="small">To ${esc(x.to || "")}${x.gmail_id ? ` · <a href="https://mail.google.com/mail/?authuser=annegyorgy@gmail.com#all/${esc(x.gmail_id)}" target="_blank" rel="noopener noreferrer">open in Gmail ↗</a>` : ""}${x.note ? " · " + esc(x.note) : ""}</p></div>`).join("") || `<p class="muted center pad">Sent emails will show here.</p>`}</div>`;
-    return `<div class="testhead"><h2>Drafts</h2><span class="testpill">TEST</span></div>
-      <p class="count">Test page. Drafts are saved on this phone only. "Approve &amp; copy" copies one message: paste it into your Grok Bot chat and it gets sent from your Gmail. Nothing is sent from this app.</p>
-      <button type="button" class="btn primary" data-drnew>＋ New draft</button>
-      ${repl}
-      ${DR.length ? `<h2 class="sec">My drafts</h2>${cards}` : ""}
-      ${sent}`;
-  }
-  function draftClick(t) {
-    if (t.closest("[data-drnew]")) { DR.push(blankDraft()); saveDR(); render(); return true; }
-    const rp = t.closest("[data-drrep]");
-    if (rp) { const reps = (D.replies || []).filter((r) => r && r.quoted !== undefined || (r && r.subject)).concat(D.reply_samples || []); const r = reps[+rp.dataset.drrep]; if (r) { DR.push(replyDraft(r)); saveDR(); render(); toast("Reply draft ready below"); } return true; }
-    const ok = t.closest("[data-drok]");
-    if (ok) { const d = DR.find((x) => x.id === ok.dataset.drok); if (!d) return true;
-      if (!String(d.to || "").includes("@") || !String(d.subject || "").trim()) { toast("Add a To address and a Subject first"); return true; }
-      copyText(approvedText(d)).then((done) => { d.status = "approved"; d.approvedAt = new Date().toISOString(); saveDR();
-        if (!done) showTxt.add(d.id);
-        render(); toast(done ? "Copied! Paste it into your Grok Bot chat to send." : "Couldn't copy automatically. The text is shown below to copy by hand."); });
-      return true; }
-    const sh = t.closest("[data-drshow]"); if (sh) { const k = sh.dataset.drshow; showTxt.has(k) ? showTxt.delete(k) : showTxt.add(k); render(); return true; }
-    const dl = t.closest("[data-drdel]"); if (dl) { if (window.confirm("Delete this draft from this phone?")) { DR = DR.filter((x) => x.id !== dl.dataset.drdel); saveDR(); render(); } return true; }
-    return false;
-  }
-  function draftInput(el) {
-    const d = DR.find((x) => x.id === el.dataset.did); if (!d) return;
-    d[el.dataset.dr] = el.value; d.at = d.at || new Date().toISOString();
-    if (d.status === "approved") d.status = "draft";   // edited after approval: needs a new approval
-    saveDR();
-  }
   /* ---------------- router ---------------- */
-  const VIEWS = { home: ["Do next", viewHome], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], drafts: ["Drafts (test)", viewDrafts], docs: ["Docs", viewDocs] };
+  const VIEWS = { home: ["Do next", viewHome], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
   const ALIAS = { top: "opps", strategy: "docs", legal: "docs" };
   function route() {
     let [tab, sub] = (location.hash.slice(1) || "home").split("/");
@@ -698,8 +619,6 @@
     if (t.closest("[data-export]")) { exportNotes(); return; }
     const ub = t.closest("[data-unrej]"); if (ub) { e.preventDefault(); const k = ub.dataset.unrej; UNREJ[k] = new Date().toISOString(); saveJ(UKEY, UNREJ); TR = null; render();
       toast("Restored", () => { delete UNREJ[k]; saveJ(UKEY, UNREJ); TR = null; render(); }); return; }
-    if (draftClick(t)) { e.preventDefault(); return; }
-    if (t.matches("[data-selectall]")) { t.select(); return; }
     const sz = t.closest("[data-snooze]"); if (sz) { e.preventDefault(); snooze(sz.dataset.snooze); return; }
     const tv = t.closest("[data-trv]"); if (tv) { ui.tr.view = tv.dataset.trv; ui.tr.q = ""; render(); return; }
     if (t.closest("[data-rejack]")) { (D.apps || []).filter((a) => a.rej && !a.arch).forEach((a) => (REJACK[akey("app", a)] = new Date().toISOString())); saveJ(RAKEY, REJACK); render(); return; }
@@ -726,7 +645,7 @@
     if (grp === "tr") ui.tr.limit = 60;
     render();
   };
-  main.addEventListener("input", (e) => { if (e.target.matches("[data-dr]")) { draftInput(e.target); return; } if (e.target.matches("[data-note]")) onNoteInput(e.target); else if (e.target.type === "search") onFilter(e); });
+  main.addEventListener("input", (e) => { if (e.target.matches("[data-note]")) onNoteInput(e.target); else if (e.target.type === "search") onFilter(e); });
   main.addEventListener("change", (e) => {
     if (e.target.matches("[data-autodel]")) {
       try { localStorage.setItem(ADKEY, e.target.checked ? "1" : "0"); } catch (err) {}
