@@ -148,8 +148,9 @@
     const open = ui.open.has(id);
     return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
       <div class="top"><h3>${esc(a.co)}</h3>${dueChip(a.due)}</div>
+      ${a.rm ? `<span class="chip ok rmtag">Removed lead – follow up anyway</span>` : ""}
       ${a.nx ? `<p class="nx">${linkify(a.nx)}</p>` : ""}
-      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc]], a.u) : ""}
+      ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc]], a.u) : ""}
     </article>`;
   }
   function rowDetail(rows, url) {

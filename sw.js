@@ -1,5 +1,5 @@
 /* Offline support: app shell cache-first, data network-first (falls back to last cached copy). */
-const VERSION = "ag-dash-v5";
+const VERSION = "ag-dash-v6";
 const SHELL = ["./", "index.html", "app.js", "styles.css", "manifest.json", "favicon.png",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png"];
 self.addEventListener("install", (e) => {
