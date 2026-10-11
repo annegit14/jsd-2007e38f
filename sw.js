@@ -1,5 +1,5 @@
 /* Offline support: app shell cache-first, data network-first (falls back to last cached copy). */
-const VERSION = "ag-dash-v6";
+const VERSION = "ag-dash-v7";
 const SHELL = ["./", "index.html", "app.js", "styles.css", "manifest.json", "favicon.png",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png"];
 self.addEventListener("install", (e) => {
@@ -20,8 +20,9 @@ self.addEventListener("fetch", (e) => {
     }).catch(() => caches.match(url.pathname).then((m) => m || new Response("", { status: 504 }))));
     return;
   }
-  e.respondWith(caches.match(req, { ignoreSearch: true }).then((hit) => {
-    const net = fetch(req).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return r; }).catch(() => hit);
-    return hit || net;   // stale-while-revalidate
-  }));
+  // App shell: network-first so code and data always match; cached copy only when offline.
+  e.respondWith(fetch(req, { cache: "no-cache" }).then((r) => {
+    if (r.ok) { const copy = r.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
+    return r;
+  }).catch(() => caches.match(req, { ignoreSearch: true }).then((m) => m || new Response("", { status: 504 }))));
 });
