@@ -109,11 +109,13 @@
     const rows = [["Why these scores", o.why], ["How to apply", o.apply], ["Resume", o.resume], ["Email angle", o.angle],
       ["Contact", contact], ["Legal", o.legal], ["Work", o.work], ["Lane / path", [o.lane, o.path && "Path " + o.path].filter(Boolean).join(" · ")],
       ["Reviews", o.rev]].filter(([, v]) => v);
+    const host = (u) => new URL(u).hostname.replace(/^www\./, "");
+    const proof = safeUrl(o.proof) || o.ev ? `<dt>Thailand proof</dt><dd>${o.ev ? esc(o.ev) + " " : ""}${safeUrl(o.proof) ? `<a href="${esc(o.proof)}" target="_blank" rel="noopener noreferrer">${esc(host(o.proof))} ↗</a>` : ""}${o.dv ? ` <span class="muted small">checked ${esc(String(o.dv).slice(0, 10))}</span>` : ""}</dd>` : "";
     const links = (o.links || []).filter(safeUrl).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(new URL(u).hostname.replace(/^www\./, ""))} ↗</a>`).join(" · ");
     return `<div class="detail" data-stop>
       ${mail || post ? `<div class="actions">${mail}${post}</div>` : ""}
       ${o.flags ? `<div class="warn"><strong>Watch out:</strong> ${linkify(o.flags)}</div>` : ""}
-      <dl>${rows.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
+      <dl>${rows.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${linkify(v)}</dd>`).join("")}${proof}</dl>
       ${links ? `<p class="small muted" style="margin:8px 0 0">More: ${links}</p>` : ""}
     </div>`;
   }
@@ -185,7 +187,15 @@
         ${all.some((o) => o.w) ? `<label class="check"><input type="checkbox" data-f="opps.watch"${s.watch ? " checked" : ""}> Watchlist</label>` : ""}
       </div>
       <p class="count">${list.length} shown · tap for details</p>
-      ${list.map((o) => oppCard(o, "all", s.sort === "rank" ? null : s.sort)).join("") || `<p class="muted center pad">No matches.</p>`}${note}`;
+      ${list.map((o) => oppCard(o, "all", s.sort === "rank" ? null : s.sort)).join("") || `<p class="muted center pad">No matches.</p>`}${removedFold()}${note}`;
+  }
+  function removedFold() {
+    const R = D.removed || [], C = D.rcauses || [];
+    if (!R.length) return "";
+    const open = !!ui.groups["removed"];
+    const body = open ? C.map((c, ci) => { const rows = R.filter((r) => r.c === ci); return rows.length ? `<h2 class="sec">${esc(c)} · ${rows.length}</h2>${rows.map((r) =>
+      `<div class="rm"><b>${esc(r.co)}</b>${r.lane ? ` <span class="muted small">${esc(r.lane)}</span>` : ""}<p>${esc(r.why || "")}${safeUrl(r.u) ? ` <a href="${esc(r.u)}" target="_blank" rel="noopener noreferrer">source ↗</a>` : ""}</p></div>`).join("")}` : ""; }).join("") : "";
+    return `<details class="fold grp rmv" data-g="removed"${open ? " open" : ""}><summary>Removed leads (with reason)<span class="n">${R.length}</span></summary>${body}</details>`;
   }
 
   const PERIODS = ["Since May 1", "Before May", "Saved, not applied"];
@@ -248,7 +258,7 @@
     const focusF = document.activeElement?.dataset?.f, pos = document.activeElement?.selectionStart;
     main.innerHTML = (VIEWS[tab] || VIEWS.home)[1]();
     if (focusF) { const el = main.querySelector(`[data-f="${focusF}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} } }
-    if (scrollTop && curTab !== tab) window.scrollTo(0, 0);
+    if (scrollTop && curTab !== tab) main.scrollTop = 0;   // main is the only scroll pane
     curTab = tab;
   }
   main.addEventListener("click", (e) => {
@@ -262,6 +272,7 @@
   });
   main.addEventListener("toggle", (e) => {     // remember which folds are open across re-renders
     const g = e.target.dataset?.g; if (g) ui.groups[g] = e.target.open;
+    if (g === "removed" && e.target.open && !e.target.querySelector(".rm")) render();   // body is built lazily
     const d = e.target.dataset?.doc; if (d) { if (e.target.open) ui.doc = d; else if (ui.doc === d) ui.doc = null; }
   }, true);
   main.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-id]")) { e.preventDefault(); e.target.click(); } });
@@ -327,7 +338,7 @@
         const key = await deriveKey($("#pw").value, env);
         const data = await decrypt(key, env);
         if ($("#remember").checked) await saveKey(key);  // non-extractable CryptoKey; passphrase itself is never stored
-        $("#pw").value = "";
+        $("#pw").value = ""; $("#pw").blur();   // close the iOS keyboard before the app shows
         setData(data);
       } catch (e) {
         $("#lockMsg").textContent = "That password didn't work. Try again.";
