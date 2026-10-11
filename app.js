@@ -22,6 +22,40 @@
   const linkify = (t) => esc(t).replace(/https?:\/\/[^\s<)"']+/g, (u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u.length > 48 ? u.slice(0, 45) + "…" : u}</a>`)
     .replace(/([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g, (m, e, off, str) => (str.slice(Math.max(0, off - 7), off).includes("mailto:") || str.slice(Math.max(0, off - 30), off).includes("://") ? m : `<a href="mailto:${e}">${e}</a>`));
   const uniq = (arr) => [...new Set(arr.filter((x) => x != null && x !== ""))].sort((a, b) => String(a).localeCompare(String(b)));
+  /* ---------------- per-entry archive (this device: localStorage; all devices: "ua" flag from build) ---------------- */
+  const AKEY = "ag-dash-archived";   // NOT cleared by "Lock & forget this device" (that only deletes the key)
+  const nk = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const akey = (t, x) => [t, nk(x.co), nk(x.role)].concat(t === "app" ? [nk(x.d)] : []).join("|");
+  let LA = {};
+  try { LA = JSON.parse(localStorage.getItem(AKEY) || "{}") || {}; } catch (e) { LA = {}; }
+  const saveLA = () => { try { localStorage.setItem(AKEY, JSON.stringify(LA)); } catch (e) {} };
+  const byMe = (t, x) => !!LA[akey(t, x)];
+  const isArch = (t, x) => !!(x.ua || byMe(t, x));
+  let ITEMS = {};   // key -> {t, x}, built at load
+  function archBtn(t, x) {
+    const k = esc(akey(t, x));
+    if (x.ua) return `<span class="muted small arch-all">Archived on all devices</span>`;
+    return byMe(t, x) ? `<button type="button" class="btn sm" data-restore="${k}">Restore</button>`
+      : `<button type="button" class="btn sm ghost" data-arch="${k}">Archive</button>`;
+  }
+  let toastT = null;
+  function toast(msg, undo) {
+    let el = document.getElementById("toast");
+    if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "status"); el.setAttribute("aria-live", "polite"); document.body.appendChild(el); }
+    el.innerHTML = `<span>${esc(msg)}</span>${undo ? `<button type="button" class="undo">Undo</button>` : ""}`;
+    el.hidden = false; el.classList.add("show");
+    clearTimeout(toastT);
+    const hide = () => { el.classList.remove("show"); el.hidden = true; };
+    if (undo) el.querySelector(".undo").onclick = () => { clearTimeout(toastT); hide(); undo(); };
+    toastT = setTimeout(hide, 6000);
+  }
+  function setArchived(k, on, withToast = true) {
+    const it = ITEMS[k]; if (!it) return;
+    if (on) LA[k] = { t: it.t, co: it.x.co, role: it.x.role || "", d: it.x.d || "", at: new Date().toISOString() };
+    else delete LA[k];
+    saveLA(); TR = null; render();
+    if (withToast) toast(on ? "Archived" : "Restored", () => setArchived(k, !on, false));
+  }
   const opt = (v, label, cur) => `<option value="${esc(v)}"${String(v) === String(cur) ? " selected" : ""}>${esc(label)}</option>`;
 
   /* ---------------- tiny safe markdown ---------------- */
@@ -113,7 +147,7 @@
     const proof = safeUrl(o.proof) || o.ev ? `<dt>Thailand proof</dt><dd>${o.ev ? esc(o.ev) + " " : ""}${safeUrl(o.proof) ? `<a href="${esc(o.proof)}" target="_blank" rel="noopener noreferrer">${esc(host(o.proof))} ↗</a>` : ""}${o.dv ? ` <span class="muted small">checked ${esc(String(o.dv).slice(0, 10))}</span>` : ""}</dd>` : "";
     const links = (o.links || []).filter(safeUrl).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(new URL(u).hostname.replace(/^www\./, ""))} ↗</a>`).join(" · ");
     return `<div class="detail" data-stop>
-      ${mail || post ? `<div class="actions">${mail}${post}</div>` : ""}
+      <div class="actions">${mail}${post}${archBtn("job", o)}</div>
       ${o.flags ? `<div class="warn"><strong>Watch out:</strong> ${linkify(o.flags)}</div>` : ""}
       <dl>${rows.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${linkify(v)}</dd>`).join("")}${proof}</dl>
       ${links ? `<p class="small muted" style="margin:8px 0 0">More: ${links}</p>` : ""}
@@ -127,7 +161,8 @@
     const pend = (D.pending || []).map((p, i) => { const id = "pend:" + i, open = ui.open.has(id);
       return `<li class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><b>${esc(p.when)}</b><span class="nx">${linkify(p.text)}</span></li>`; }).join("");
     const groups = {};
-    (D.act || []).forEach((a) => { const k = a.pr || "Other"; (groups[k] = groups[k] || []).push(a); });
+    const actV = (D.act || []).filter((a) => !isArch("act", a)), actA = (D.act || []).length - actV.length;
+    actV.forEach((a) => { const k = a.pr || "Other"; (groups[k] = groups[k] || []).push(a); });
     const act = Object.keys(groups).sort().map((k, gi) => {
       const rows = groups[k], key = "g:" + k;
       const isOpen = ui.groups[key] ?? (/^[01]\b/.test(k) || gi < 2);
@@ -140,7 +175,7 @@
       `<li><b>${esc(h.co)}</b>: Removed lead – ${esc(h.why || "see reason in Jobs → All → Removed leads")}</li>`).join("")}</ul></details>` : "";
     return `${stats ? `<div class="stats">${stats}</div>` : ""}
       ${pend ? `<h2 class="sec">Next up</h2><ul class="card pending">${pend}</ul>` : ""}
-      ${act || hidden ? `<h2 class="sec">Act now · ${(D.act || []).length}</h2>${act}${hidden}` : ""}
+      ${act || hidden || actA ? `<h2 class="sec">Act now · ${actV.length}</h2>${act}${hidden}${actA ? `<a class="hidden-note arch-link" href="#opps/archived">${actA} archived by you · see Jobs › Archived</a>` : ""}` : ""}
       <a class="btn more" href="#opps/overall">Top 25 opportunities →</a>`;
   }
   const dueChip = (due) => { if (!due) return ""; const over = due <= new Date().toISOString().slice(0, 10); return `<span class="chip ${over ? "bad" : "info"}">${over ? "Due " : ""}${fmtDate(due)}</span>`; };
@@ -150,17 +185,17 @@
       <div class="top"><h3>${esc(a.co)}</h3>${dueChip(a.due)}</div>
       ${a.rm ? `<span class="chip ok rmtag">Removed lead – follow up anyway</span>` : ""}
       ${a.nx ? `<p class="nx">${linkify(a.nx)}</p>` : ""}
-      ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc]], a.u) : ""}
+      ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc]], a.u, archBtn("act", a)) : ""}
     </article>`;
   }
-  function rowDetail(rows, url) {
+  function rowDetail(rows, url, extra = "") {
     rows = rows.filter(([, v]) => v);
     return `<div class="detail" data-stop><dl class="grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${/^Applied|^Due/.test(k) ? v : linkify(v)}</dd>`).join("")}</dl>
-      ${safeUrl(url) ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(new URL(url).hostname.replace(/^www\./, ""))} ↗</a>` : ""}</div>`;
+      <div class="actions row-actions">${safeUrl(url) ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(new URL(url).hostname.replace(/^www\./, ""))} ↗</a>` : ""}${extra}</div></div>`;
   }
 
   const SORTS = { rank: "Rank", speed: "Speed", pay: "Pay", fit: "Fit", reliability: "Reliability", odds: "Interview odds" };
-  const LISTS = [["overall", "Top", "overall"], ["speed", "Speed", "speed"], ["pay", "Pay", "pay"], ["fit", "Fit", "fit"], ["reliability", "Reliability", "reliability"], ["all", "All", ""]];
+  const LISTS = [["overall", "Top", "overall"], ["speed", "Speed", "speed"], ["pay", "Pay", "pay"], ["fit", "Fit", "fit"], ["reliability", "Reliability", "reliability"], ["all", "All", ""], ["archived", "Archived", ""]];
   function sortVal(o, k) {
     if (k === "rank") return o.rank == null ? 1e9 - (o.rs ?? 0) : o.rank;
     const i = SC.findIndex(([x]) => x === k);
@@ -169,18 +204,20 @@
   function viewOpps() {
     const all = D.opps || [];
     if (!LISTS.find(([k]) => k === ui.list)) ui.list = "overall";
-    const nList = (k) => (k === "all" ? all.filter((o) => !o.w).length : ((D.top || {})[k] || []).length);
+    const visTop = (k) => ((D.top || {})[k] || []).filter((id) => byId(id) && !isArch("job", byId(id)));
+    const nList = (k) => (k === "all" ? all.filter((o) => !o.w && !isArch("job", o)).length : k === "archived" ? archivedAll().length : visTop(k).length);
     const seg = `<div class="seg" role="tablist">${LISTS.map(([k, l]) => `<button data-list="${k}" aria-pressed="${k === ui.list}">${l} (${nList(k)})</button>`).join("")}</div>`;
     const note = D.score_note ? `<details class="note"><summary>How scores work</summary><p>${esc(D.score_note)}</p></details>` : "";
+    if (ui.list === "archived") return seg + viewArchived();
     if (ui.list !== "all") {
-      const ids = (D.top || {})[ui.list] || [];
+      const ids = (D.top || {})[ui.list] || [], nA = ids.length - visTop(ui.list).length;
       const hl = ui.list === "overall" ? null : ui.list;
       const cur = LISTS.find(([k]) => k === ui.list);
-      const head = `<h2 class="listhead">Top ${ids.length}${ui.list === "overall" ? " overall" : " by " + cur[2]}</h2>`;
-      return `${seg}${head}${ids.map((id, i) => { const o = byId(id); return o ? oppCard(o, "l-" + ui.list, hl, i + 1) : ""; }).join("") || `<p class="muted center pad">Nothing on this list yet.</p>`}${note}`;
+      const head = `<h2 class="listhead">Top ${ids.length}${ui.list === "overall" ? " overall" : " by " + cur[2]}${nA ? ` <span class="muted small">· ${ids.length - nA} shown, ${nA} archived by you (numbers keep their list position)</span>` : ""}</h2>`;
+      return `${seg}${head}${ids.map((id, i) => { const o = byId(id); return o && !isArch("job", o) ? oppCard(o, "l-" + ui.list, hl, i + 1) : ""; }).join("") || `<p class="muted center pad">Nothing on this list yet.</p>`}${note}`;
     }
     const s = ui.opps;
-    let list = all.filter((o) => (s.watch || !o.w) && (!s.mail || (o.emails || []).length)
+    let list = all.filter((o) => !isArch("job", o) && (s.watch || !o.w) && (!s.mail || (o.emails || []).length)
       && (!s.lane || o.lane === s.lane) && (!s.path || o.path === s.path) && (!s.tier || o.tier === s.tier));
     if (s.q) { const q = s.q.toLowerCase(); list = list.filter((o) => JSON.stringify(o).toLowerCase().includes(q)); }
     list.sort((a, b) => sortVal(a, s.sort) - sortVal(b, s.sort) || sortVal(a, "rank") - sortVal(b, "rank"));
@@ -196,6 +233,20 @@
       </div>
       <p class="count">${list.length} shown · tap for details</p>
       ${list.map((o) => oppCard(o, "all", s.sort === "rank" ? null : s.sort)).join("") || `<p class="muted center pad">No matches.</p>`}${removedFold()}${note}`;
+  }
+  function archivedAll() {
+    return Object.entries(ITEMS).filter(([, it]) => isArch(it.t, it.x)).map(([k, it]) => ({ k, ...it }));
+  }
+  function viewArchived() {
+    const A = archivedAll();
+    const lab = { job: "Jobs", act: "Today › Act now", app: "Tracker" };
+    const row = ({ k, t, x }) => `<div class="arow"><div class="ainfo"><b>${esc(x.co)}</b>${x.role ? `<span class="muted small">${esc(x.role)}</span>` : ""}
+        <span class="small ${x.ua ? "muted" : "byme"}">${x.ua ? "archived on all devices" : "archived by you" + (LA[k] && LA[k].at ? " · " + fmtDate(LA[k].at.slice(0, 10)) : "")}${t === "app" && x.d ? " · applied " + fmtDate(x.d) : ""}</span></div>
+        ${x.ua ? "" : `<button type="button" class="btn sm" data-restore="${esc(k)}">Restore</button>`}</div>`;
+    const sec = ["job", "act", "app"].map((t) => { const r = A.filter((a) => a.t === t); return r.length ? `<h2 class="sec">${lab[t]} · ${r.length}</h2><div class="card list">${r.map(row).join("")}</div>` : ""; }).join("");
+    return `<h2 class="listhead">Archived by me (${A.length})</h2>
+      <p class="count">Hidden from Today, Jobs and Tracker. Tap Restore to bring an entry back on this device. Entries marked "archived on all devices" can only be restored by asking for them to be taken off the archive list. (Older US applications archived on Oct 11 are under Tracker › Period › Archived.)</p>
+      ${sec || `<p class="muted center pad">Nothing archived yet. Open any job, application or Act now item and tap Archive.</p>`}`;
   }
   function removedFold() {
     const R = D.removed || [], C = D.rcauses || [];
@@ -215,7 +266,9 @@
     if (TR) return TR;
     const base = Object.freeze((D.apps || []).map((a) => Object.freeze({ ...a })));
     // archived = older US applications Anne set aside: only in the "Archived" period, never in the default views/counts
-    const inP = (a, p) => (p === "A" ? !!a.arch : !a.arch && p.includes(String(a.p ?? 1)));
+    // "Archived" also holds entries Anne archived herself (this device or all devices)
+    const hid = (a) => !!a.arch || isArch("app", a);
+    const inP = (a, p) => (p === "A" ? hid(a) : !hid(a) && p.includes(String(a.p ?? 1)));
     const counts = Object.fromEntries(PERIODS.map(([v]) => [v, base.filter((a) => inP(a, v)).length]));
     const main = base.filter((a) => String(a.p ?? 1) === "0");   // dropdown options: fixed at load (since-May rows)
     TR = { base, inP, counts, statuses: Object.freeze(uniq(main.map((a) => a.st))), sources: Object.freeze(uniq(main.map((a) => a.src))) };
@@ -249,7 +302,8 @@
     return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
       <div class="top"><h3>${esc(a.co)}</h3><span class="date">${fmtDate(a.d)}</span></div>
       <div class="sub">${a.st ? `<span class="chip ${statusCls(a.st)}">${esc(a.st.replace(/ \(.*\)$/, ""))}</span>` : ""}<span class="role">${esc(a.role || "")}</span></div>
-      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Next", a.nx], ["Notes", a.nt], ["Fit", a.fit], ["Source", a.src], ["Where", a.loc], ["Due", a.due && fmtDate(a.due)]], a.u) : ""}
+      ${isArch("app", a) ? `<div class="archtag"><span class="chip info">${a.ua ? "archived on all devices" : "archived by you"}</span>${a.ua ? "" : `<button type="button" class="btn sm" data-restore="${esc(akey("app", a))}">Restore</button>`}</div>` : ""}
+      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Next", a.nx], ["Notes", a.nt], ["Fit", a.fit], ["Source", a.src], ["Where", a.loc], ["Due", a.due && fmtDate(a.due)]], a.u, archBtn("app", a)) : ""}
     </article>`;
   }
 
@@ -289,6 +343,8 @@
   }
   main.addEventListener("click", (e) => {
     const t = e.target;
+    const ab = t.closest("[data-arch]"); if (ab) { e.preventDefault(); setArchived(ab.dataset.arch, true); return; }
+    const rb = t.closest("[data-restore]"); if (rb) { e.preventDefault(); setArchived(rb.dataset.restore, false); return; }
     if (t.closest("a") || t.closest("[data-stop]") || t.closest("summary")) return;
     const l = t.closest("[data-list]"); if (l) { ui.list = l.dataset.list; history.replaceState(null, "", "#opps/" + ui.list); render(); return; }
     if (t.closest("[data-more]")) { ui.tr.limit += 50; render(); return; }
@@ -338,6 +394,10 @@
       for (const k of ["st", "src", "nx", "nt", "loc", "fit"]) if (typeof a[k] === "number") a[k] = W[a[k]];
       if (a.u && /^[a-z]\|/.test(a.u) && P[a.u[0]]) a.u = P[a.u[0]] + a.u.slice(2);
     });
+    ITEMS = {};
+    (D.opps || []).forEach((o) => (ITEMS[akey("job", o)] = ITEMS[akey("job", o)] || { t: "job", x: o }));
+    (D.act || []).forEach((a) => (ITEMS[akey("act", a)] = ITEMS[akey("act", a)] || { t: "act", x: a }));
+    (D.apps || []).forEach((a) => (ITEMS[akey("app", a)] = ITEMS[akey("app", a)] || { t: "app", x: a }));
     $("#updated").textContent = "Updated " + (D.generated || "").slice(0, 10);
     $("#lock").hidden = true;
     route();
