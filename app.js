@@ -7,7 +7,7 @@
   const ui = {                        // view state (kept across tab switches)
     opps: { q: "", lane: "", path: "", tier: "", sort: "rank", watch: false, mail: false },
     list: "overall",                  // overall | speed | pay | fit | reliability | all
-    tr: { q: "", status: "", source: "", period: "0", limit: 50 },
+    tr: { q: "", status: "", source: "", period: "0", limit: 50, view: "apps" },
     open: new Set(), groups: {}, doc: null,
   };
 
@@ -131,6 +131,22 @@
     toast("Deleted from this app");
   }
   let ITEMS = {};   // key -> {t, x}, built at load
+  // Snooze (A5): per device, pushes an item's due date by 3 business days (Mon-Fri)
+  const SZKEY = "ag-dash-snooze";
+  let SZ = loadJ(SZKEY);
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayIso = () => iso(new Date());
+  const addBiz = (from, n) => { const d = new Date(from + "T00:00:00"); while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() % 6) n--; } return iso(d); };
+  const effDue = (t, x) => { const z = SZ[akey(t, x)]; return z && (!x.due || z.to > x.due) ? z.to : x.due; };
+  function snooze(k) {
+    const it = ITEMS[k]; if (!it) return;
+    const cur = effDue(it.t, it.x), base = cur && cur > todayIso() ? cur : todayIso(), prev = SZ[k];
+    SZ[k] = { to: addBiz(base, 3), at: new Date().toISOString() }; saveJ(SZKEY, SZ); render();
+    toast("Snoozed to " + fmtDate(SZ[k].to), () => { if (prev) SZ[k] = prev; else delete SZ[k]; saveJ(SZKEY, SZ); render(); });
+  }
+  const MBN = { G: "Gmail", I: "iCloud", Y: "Yahoo-legacy", P: "Platform", T: "Phone" };
+  const mbChip = (c) => (c && MBN[c] ? `<span class="chip mb mb-${c}" title="Mailbox">${MBN[c]}</span>` : "");
+  const worthChip = (v) => (v != null ? `<span class="chip worth" title="Worth it (0-10)">Worth ${v}</span>` : "");
   function archBtn(t, x) {
     const k = esc(akey(t, x));
     if (x.ua) return `<span class="muted small arch-all">Archived on all devices</span>${delBtn(k)}`;
@@ -231,8 +247,8 @@
     return `<article class="card opp${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
       <div class="head"><div class="rank${r ? "" : " none"}" title="${pos ? "List position" + (o.rank ? ", overall #" + o.rank : "") : "Overall rank"}">${r || "–"}</div>
         <div class="ttl"><h3>${esc(o.co)}</h3>${o.role ? `<p class="role">${esc(o.role)}</p>` : ""}</div></div>
-      <div class="meta">${meta}</div>
-      ${badges(o, hl)}
+      <div class="meta">${o.ws != null ? `<span class="t worth-t">Worth it ${o.ws}</span> · ` : ""}${meta}</div>
+      ${open || hl ? badges(o, hl) : ""}
       ${open ? oppDetail(o) : notePv("job", o)}
     </article>`;
   }
@@ -255,9 +271,14 @@
     </div>`;
   }
 
+  function worthDetail(a) {
+    if (a.ws == null) return null;
+    const f = (a.sc5 || []).map((v, i) => `${SC[i][2]} ${v ?? "–"}`).join(" · ");
+    return `<b>${a.ws}</b>/10${f ? `<br><span class="small muted">${esc(f)} (each of 5), times the legal check</span>` : ""}`;
+  }
   /* ---------------- email drafts (the app only opens a draft; it never sends anything) ---------------- */
-  const SIG = "Anne Gyorgy, RN, BSN\nannegyorgy@gmail.com\nThailand: +66 92 270 7704 | US: +1 919-214-0404";
-  const ME = "25+ years as a US RN (OB-GYN and hospice), including 9 years of telephonic case management at Anthem and UnitedHealthcare";
+  const SIG = "Anne Gyorgy, RN, BSN\nannegyorgy@gmail.com\nThailand: +66 92 270 7704\nUS: +1 919-214-0404";   // ANNE_FACTS: each phone on its own line
+  const ME = "25+ years as a US RN (OB-GYN and hospice), including about 8 years of remote telephonic case management";   // ANNE_FACTS (8 vs 9 yrs: open question)
   const LANE_TPL = {
     pet: { inq: ["I'm a US RN and former medical-office operations manager with " + ME.replace("25+ years as a US RN ", "25+ years in nursing ") + ".",
         "I recently moved my own four cats from the US to Thailand, so I know the DLD import permit, rabies-titer timing and airline cargo rules first-hand.",
@@ -308,7 +329,7 @@
     if (isFollowUp(t, x)) {
       su = `Following up: ${what} – Anne Gyorgy`;
       lines = [`I'm following up on my application${role && !laneLike ? " for " + short(role, 80) : ""}${x.d ? " (sent " + fmtDate(x.d).replace(/<[^>]+>/g, "") + ")" : ""}. I'm still very interested.`,
-        "Quick recap: US RN, 25+ years in OB-GYN and hospice, 9 years of telephonic case management (Anthem, UnitedHealthcare).", T.fu,
+        "Quick recap: US RN, 25+ years in OB-GYN and hospice, about 8 years of remote telephonic case management.", T.fu,
         "Happy to share anything else you need, or to talk at a time that suits you."];
     } else {
       su = `Inquiry: ${what}`;
@@ -346,27 +367,74 @@
     const H = D.act_hidden || [];
     const hidden = H.length ? `<details class="hidden-note"><summary>${H.length} removed-lead item${H.length === 1 ? "" : "s"} hidden</summary><ul>${H.map((h) =>
       `<li><b>${esc(h.co)}</b>: Removed lead – ${esc(h.why || "see reason in Jobs → All → Removed leads")}</li>`).join("")}</ul></details>` : "";
-    const newRej = (D.apps || []).filter((a) => a.rej && !a.arch && !REJACK[akey("app", a)]);
-    const banner = newRej.length ? `<div class="banner" role="status"><p><b>New rejections moved to Archived:</b> ${newRej.map((a) => esc(a.co)).join(", ")}.</p>
-      <p class="small">They're in Tracker › Period › Archived (tagged "rejected"); open one and tap Restore to bring it back.</p><button type="button" class="btn sm" data-rejack>Got it</button></div>` : "";
-    return `${banner}${stats ? `<div class="stats">${stats}</div>` : ""}
-      ${pend ? `<h2 class="sec">Next up</h2><ul class="card pending">${pend}</ul>` : ""}
-      ${act || hidden || actA ? `<h2 class="sec">Act now · ${actV.length}</h2>${act}${hidden}${actA ? `<a class="hidden-note arch-link" href="#opps/archived">${actA} archived by you · see Jobs › Archived</a>` : ""}` : ""}
+    // A1 "Do next": at most 7 items (soonest due, then priority group, then Worth it); everything else folded under More
+    const prn = (a) => { const n = parseInt(String(a.pr || "9"), 10); return (Number.isNaN(n) ? 9 : n) + (/interview/i.test(a.st || "") ? -2 : /scheduled/i.test(a.st || "") ? 5 : 0); };
+    const todo = actV.filter((a) => !/archived/i.test(a.st || ""));
+    const ranked = todo.slice().sort((a, b) => String(effDue("act", a) || "9999").localeCompare(String(effDue("act", b) || "9999")) || prn(a) - prn(b) || (b.ws || 0) - (a.ws || 0));
+    const top7 = ranked.slice(0, 7);
+    const doNext = top7.map((a, i) => actionCard(a, "do:" + i)).join("");
+    const moreOpen = !!ui.groups["more"];
+    const more = `<details class="fold grp more" data-g="more"${moreOpen ? " open" : ""}><summary>More<span class="n">${Math.max(0, todo.length - top7.length)} more · all ${actV.length} by group</span></summary>
+      ${moreOpen ? `<div class="inner">${act}${hidden}${actA ? `<a class="hidden-note arch-link" href="#opps/archived">${actA} archived by you · see Jobs › Archived</a>` : ""}</div>` : ""}</details>`;
+    const nuOpen = !!ui.groups["nextup"];
+    const nextup = pend ? `<details class="fold grp" data-g="nextup"${nuOpen ? " open" : ""}><summary>Next up (calendar)<span class="n">${(D.pending || []).length}</span></summary><ul class="pending inner">${pend}</ul></details>` : "";
+    return `${repliesCard()}
+      <h2 class="sec">Do next · ${top7.length}</h2><div class="card list donext">${doNext || `<p class="muted center pad">All clear for now.</p>`}</div>
+      ${more}
+      ${interviewsCard()}
+      ${scorecard()}
+      ${nextup}
       <a class="btn more" href="#opps/overall">Top 25 opportunities →</a>`;
   }
-  const dueChip = (due) => { if (!due) return ""; const over = due <= new Date().toISOString().slice(0, 10); return `<span class="chip ${over ? "bad" : "info"}">${over ? "Due " : ""}${fmtDate(due)}</span>`; };
+  const dueChip = (due, snoozed) => { if (!due) return ""; const now = due <= todayIso(); return `<span class="chip ${now ? "ok" : "info"}">${snoozed ? "💤 " : now ? "Today · " : ""}${fmtDate(due)}</span>`; };
+  // A4 New replies (filled by the daily Gmail triage; suggestions only, Anne confirms)
+  function repliesCard() {
+    const R = (D.replies || []).filter((r) => r && !/closed/i.test(r.class || ""));
+    if (!R.length) return `<div class="card replies empty"><b>New replies</b><span class="muted small"> · nothing new yet. The daily Gmail check adds replies here with a suggested next step.</span></div>`;
+    return `<h2 class="sec">New replies · ${R.length}</h2><div class="card list">${R.map((r, i) => { const id = "rep:" + i, open = ui.open.has(id);
+      return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><div class="top"><h3>${esc(r.company)}</h3>${mbChip({ Gmail: "G", iCloud: "I", "Yahoo-legacy": "Y", Platform: "P" }[r.mailbox])}<span class="date">${fmtDate(r.date)}</span></div>
+        <p class="nx">${esc(r.summary || "")}</p>${r.suggested_status ? `<p class="small"><span class="chip good">Suggested</span> ${esc(r.suggested_status)}${r.suggested_next ? " → " + esc(r.suggested_next) : ""}</p>` : ""}</article>`; }).join("")}</div>`;
+  }
+  // A8 interview tracker
+  function interviewsCard() {
+    const I = D.interviews || [];
+    if (!I.length) return "";
+    return `<h2 class="sec">Interviews</h2>${I.map((v) => `<div class="card iv"><div class="top"><b>${esc(v.company)}</b>${v.doc ? `<a class="small" href="#docs/${esc(v.doc)}">Brief →</a>` : ""}</div>
+      <p class="small muted">${esc(v.role || "")}${v.who ? " · " + esc(v.who) : ""}</p>
+      <ol class="stages">${(v.stages || []).map((st) => `<li class="${st.done ? "done" : ""}"><span class="dot"></span><b>${esc(st.k)}</b> <span class="small muted">${st.d ? fmtDate(st.d) : ""}${st.time ? " · " + esc(st.time) : ""}</span>${st.note ? `<span class="small muted"> · ${esc(st.note)}</span>` : ""}</li>`).join("")}</ol></div>`).join("")}`;
+  }
+  // A10 weekly scorecard (Mon-Sun, this device's date). Progress only.
+  function weekStart(d = new Date()) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); }
+  function scorecard() {
+    const ws = weekStart(), wd = new Date(ws + "T00:00:00"); wd.setDate(wd.getDate() + 6); const we = iso(wd);
+    const inW = (d) => d && d >= ws && d <= we;
+    const T = (D.touches || []).filter((t) => inW(t[0]));
+    const wl = (D.wl || {})[ws] || {}, M = D.mix || { warm: 5, tailored: 3, platform: 2 };
+    const replies = T.filter((t) => t[3] === "reply").length + (D.replies || []).filter((r) => inW(r.date)).length;
+    const ivs = (D.interviews || []).reduce((n, v) => n + (v.stages || []).filter((s) => /interview/i.test(s.k) && inW(s.d)).length, 0);
+    const warm = T.filter((t) => t[4] === "warm").length, tail = T.filter((t) => t[4] === "tailored").length;
+    const plat = T.filter((t) => t[4] === "platform").length + (wl.platform_onboardings || 0);
+    const bar = (lab, n, goal) => `<div class="mix"><span>${lab}</span><span class="track"><span style="width:${Math.min(100, Math.round((100 * n) / (goal || 1)))}%"></span></span><b>${n}/${goal}</b></div>`;
+    const tile = (v, l) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+    return `<h2 class="sec">This week · from ${fmtDate(ws)}</h2><div class="card score">
+      <div class="stats">${tile(T.length, "Touches")}${tile(replies, "Replies")}${tile(ivs, "Interviews")}${tile(wl.platform_hours || 0, "Platform hrs")}</div>
+      ${bar("Warm touches", warm, M.warm)}${bar("Tailored applications", tail, M.tailored)}${bar("Platform onboardings", plat, M.platform)}
+      <p class="small muted">Weekly mix target: ${M.warm} warm touches · ${M.tailored} tailored applications · ${M.platform} platform onboardings.</p></div>`;
+  }
   function actionCard(a, id) {
     const open = ui.open.has(id);
     return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
-      <div class="top"><h3>${esc(a.co)}</h3>${dueChip(a.due)}</div>
+      <div class="top"><h3>${esc(a.co)}</h3>${dueChip(effDue("act", a), effDue("act", a) !== a.due)}</div>
+      <div class="tags">${mbChip(a.mb)}${worthChip(a.ws)}${approvalFor(a.co) ? `<a class="chip ok" href="#approvals">Needs your OK</a>` : ""}</div>
       ${a.rm ? `<span class="chip ok rmtag">Removed lead – follow up anyway</span>` : ""}
       ${a.nx ? `<p class="nx">${linkify(a.nx)}</p>` : ""}${open ? "" : notePv("act", a)}
-      ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc]], a.u, archBtn("act", a), emailBlock("act", a), noteBox("act", a)) : ""}
+      ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc], ["Worth it", worthDetail(a)]], a.u,
+        (effDue("act", a) ? `<button type="button" class="btn sm" data-snooze="${esc(akey("act", a))}">Snooze 3 days</button>` : "") + archBtn("act", a), emailBlock("act", a), noteBox("act", a)) : ""}
     </article>`;
   }
   function rowDetail(rows, url, extra = "", mail = "", note = "") {
     rows = rows.filter(([, v]) => v);
-    return `<div class="detail" data-stop>${note}<dl class="grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${/^Applied|^Due/.test(k) ? v : linkify(v)}</dd>`).join("")}</dl>
+    return `<div class="detail" data-stop>${note}<dl class="grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${/^Applied|^Due|^Worth/.test(k) ? v : linkify(v)}</dd>`).join("")}</dl>
       ${mail ? `<div class="actions row-actions mail-actions">${mail}</div>` : ""}<div class="actions row-actions">${safeUrl(url) ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(new URL(url).hostname.replace(/^www\./, ""))} ↗</a>` : ""}${extra}</div></div>`;
   }
 
@@ -436,7 +504,7 @@
 
   // Period filter. Saved-but-not-applied jobs are their own view so they never inflate application counts.
   const PERIODS = [["0", "Since May 1"], ["1", "Before May"], ["01", "All applied"], ["2", "Saved, not applied"], ["A", "Archived"]];
-  const statusCls = (s) => (/interview/i.test(s) ? "good" : /reject|scam/i.test(s) ? "bad" : /viewed/i.test(s) ? "info" : /saved/i.test(s) ? "ok" : "");
+  const statusCls = (s) => (/interview/i.test(s) ? "good" : /viewed|scheduled/i.test(s) ? "info" : /saved/i.test(s) ? "ok" : "");
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
   let TR = null;   // built once at load from the original data; never mutated by filters
   function trackerBase() {
@@ -458,6 +526,24 @@
       .sort((a, b) => String(b.d || "").localeCompare(String(a.d || "")));
   }
   function viewTracker() {
+    const stats = (D.stats || []).map((x) => `<div class="stat"><div class="v">${esc(x.v)}</div><div class="l">${esc(x.l)}</div></div>`).join("");
+    const seg = `<div class="seg" role="tablist"><button data-trv="apps" aria-pressed="${ui.tr.view !== "crm"}">Applications</button><button data-trv="crm" aria-pressed="${ui.tr.view === "crm"}">Contacts (${(D.crm || []).length})</button></div>`;
+    return `${stats ? `<div class="stats trstats">${stats}</div>` : ""}${seg}${ui.tr.view === "crm" ? viewCRM() : viewApps()}`;
+  }
+  // A7 contact CRM: one card per company (person, last touch, mailbox, next step)
+  function viewCRM() {
+    const q = (ui.tr.q || "").toLowerCase();
+    const L = (D.crm || []).filter((c) => !q || JSON.stringify(c).toLowerCase().includes(q));
+    return `<div class="controls"><input type="search" placeholder="Search company, person…" value="${esc(ui.tr.q)}" data-f="tr.q" aria-label="Search contacts"></div>
+      <p class="count">${plural(L.length, "company", "companies")} · latest touch first</p>
+      <div class="card list">${L.map((c, i) => { const id = "crm:" + i, open = ui.open.has(id);
+        return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}">
+          <div class="top"><h3>${esc(c.co)}</h3>${mbChip(c.mb)}<span class="date">${c.last ? "last " + fmtDate(c.last) : ""}</span></div>
+          <div class="sub"><span class="role">${esc(c.who || "No named contact yet")}</span></div>
+          ${c.nx ? `<p class="nx">${linkify(c.nx)}</p>` : ""}
+          ${open ? rowDetail([["Person", c.who], ["Email", c.em], ["Last", c.last && fmtDate(c.last)], ["Mailbox", MBN[c.mb]], ["Next step", c.nx], ["Due", c.due && fmtDate(c.due)], ["Note", c.note]], null) : ""}</article>`; }).join("") || `<p class="muted center pad">No matches.</p>`}</div>`;
+  }
+  function viewApps() {
     const s = ui.tr, T = trackerBase();
     if (!PERIODS.some(([v]) => v === s.period)) s.period = "0";
     const list = filterApps(T.base, s, T.inP);
@@ -477,9 +563,9 @@
   function appRow(a, id) {
     const open = ui.open.has(id);
     return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
-      <div class="top"><h3>${esc(a.co)}</h3><span class="date">${fmtDate(a.d)}</span></div>
+      <div class="top"><h3>${esc(a.co)}</h3>${mbChip(a.mb)}<span class="date">${fmtDate(a.d)}</span></div>
       <div class="sub">${a.st ? `<span class="chip ${statusCls(a.st)}">${esc(a.st.replace(/ \(.*\)$/, ""))}</span>` : ""}<span class="role">${esc(a.role || "")}</span></div>${open ? "" : notePv("app", a)}
-      ${isArch("app", a) ? `<div class="archtag">${rejArch("app", a) && !byMe("app", a) ? `<span class="chip bad">rejected</span>${a.arch ? "" : `<button type="button" class="btn sm" data-unrej="${esc(akey("app", a))}">Restore</button>`}`
+      ${isArch("app", a) ? `<div class="archtag">${rejArch("app", a) && !byMe("app", a) ? `<span class="chip info">archived (closed)</span>${a.arch ? "" : `<button type="button" class="btn sm" data-unrej="${esc(akey("app", a))}">Restore</button>`}`
         : `<span class="chip info">${a.ua ? "archived on all devices" : "archived by you"}</span>${a.ua ? "" : `<button type="button" class="btn sm" data-restore="${esc(akey("app", a))}">Restore</button>`}`}${delBtn(esc(akey("app", a)))}</div>` : ""}
       ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Next", a.nx], ["Notes", a.nt], ["Fit", a.fit], ["Source", a.src], ["Where", a.loc], ["Due", a.due && fmtDate(a.due)]], a.u, archBtn("app", a), emailBlock("app", a), noteBox("app", a)) : ""}
     </article>`;
@@ -488,16 +574,35 @@
   function viewDocs() {
     const docs = D.docs || [];
     const miss = D.missing || [];
-    return `${docs.map((d) => `<details class="fold doc" data-doc="${esc(d.k)}"${ui.doc === d.k ? " open" : ""}>
+    const R = D.resumes || [], lane = R.filter((r) => r.lane), old = R.filter((r) => !r.lane);
+    const resumes = R.length ? `<details class="fold doc" data-doc="resumes"${ui.doc === "resumes" ? " open" : ""}><summary><span><b>Resumes</b><span class="prev">${lane.length} lane resumes (${lane.filter((r) => r.draft).length} drafts for your review) · ${old.length} existing files</span></span></summary>
+      <div class="md">${lane.map((r) => `<details class="sub"><summary><b>${esc(r.lane)}</b> ${r.draft ? `<span class="chip ok">DRAFT – review</span>` : ""}<span class="small muted"> ${esc(r.f)}</span></summary>${r.md ? md(r.md) : ""}</details>`).join("")}
+      <p class="small muted">Existing: ${old.map((r) => esc(r.f.split("/").pop())).join(" · ")}</p></div></details>` : "";
+    return `${docs.length ? docs.slice(0, 1).map((d) => `<details class="fold doc" data-doc="${esc(d.k)}"${ui.doc === d.k ? " open" : ""}>
+        <summary><span><b>${esc(d.t)}</b>${d.s ? `<span class="prev">${esc(d.s)}</span>` : ""}</span></summary>${md(d.md)}</details>`).join("") : ""}${resumes}${docs.slice(1).map((d) => `<details class="fold doc" data-doc="${esc(d.k)}"${ui.doc === d.k ? " open" : ""}>
         <summary><span><b>${esc(d.t)}</b>${d.s ? `<span class="prev">${esc(d.s)}</span>` : ""}</span></summary>${md(d.md)}</details>`).join("") || `<p class="muted center pad">No documents found.</p>`}
-      <div class="footer">Built ${esc(D.generated)}${miss.length ? ` · Missing: ${miss.map(esc).join("; ")}` : ""}
+      <div class="footer">${esc(D.version || "")} · built ${esc(D.built || D.generated)}${miss.length ? ` · Missing: ${miss.map(esc).join("; ")}` : ""}
         <div class="settings-line">${autoDelCtl("small")}</div>
         <div><button type="button" class="btn sm" data-export>Export my notes (${Object.values(LN).filter((n) => n && n.text && n.text.trim()).length})</button></div>
         ${ENC ? `<button class="btn sm" data-lock>Lock &amp; forget this device</button>` : ""}</div>`;
   }
 
+  const approvalFor = (co) => (D.approvals || []).find((x) => x.status === "pending" && nk(x.company).slice(0, 8) === nk(co).slice(0, 8));
+  function viewApprovals() {
+    const A = D.approvals || [], lab = { pending: ["Waiting for your OK", "ok"], scheduled: ["Approved · scheduled", "info"], sent: ["Sent", "good"], skipped: ["Skipped", ""] };
+    const order = { pending: 0, scheduled: 1, sent: 2, skipped: 3 };
+    const L = A.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+    return `<p class="count">Read-only. Approve or change wording in chat; this app never sends anything.</p>
+      <div class="card list">${L.map((x, i) => { const id = "ap:" + i, open = ui.open.has(id), [l, c] = lab[x.status] || [x.status, ""];
+        return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}">
+          <div class="top"><h3>${esc(x.company)}</h3><span class="chip ${c}">${esc(l)}</span></div>
+          <div class="sub">${mbChip({ Gmail: "G", iCloud: "I" }[x.mailbox])}<span class="role">${esc(x.planned || "")}</span></div>
+          <p class="nx">${esc(x.summary || "")}</p>
+          ${open ? `<div class="detail" data-stop><dl class="grid"><dt>To</dt><dd>${esc(x.to || "")}${x.person ? " (" + esc(x.person) + ")" : ""}</dd><dt>Subject</dt><dd>${esc(x.subject || "")}</dd></dl>
+            ${x.text ? `<pre class="mailtext">${esc(x.text)}</pre>` : ""}${x.text_note ? `<p class="small muted">${esc(x.text_note)}</p>` : ""}</div>` : ""}</article>`; }).join("") || `<p class="muted center pad">Nothing waiting for approval.</p>`}</div>`;
+  }
   /* ---------------- router ---------------- */
-  const VIEWS = { home: ["Today", viewHome], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
+  const VIEWS = { home: ["Do next", viewHome], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
   const ALIAS = { top: "opps", strategy: "docs", legal: "docs" };
   function route() {
     let [tab, sub] = (location.hash.slice(1) || "home").split("/");
@@ -528,6 +633,8 @@
     if (t.closest("[data-export]")) { exportNotes(); return; }
     const ub = t.closest("[data-unrej]"); if (ub) { e.preventDefault(); const k = ub.dataset.unrej; UNREJ[k] = new Date().toISOString(); saveJ(UKEY, UNREJ); TR = null; render();
       toast("Restored", () => { delete UNREJ[k]; saveJ(UKEY, UNREJ); TR = null; render(); }); return; }
+    const sz = t.closest("[data-snooze]"); if (sz) { e.preventDefault(); snooze(sz.dataset.snooze); return; }
+    const tv = t.closest("[data-trv]"); if (tv) { ui.tr.view = tv.dataset.trv; ui.tr.q = ""; render(); return; }
     if (t.closest("[data-rejack]")) { (D.apps || []).filter((a) => a.rej && !a.arch).forEach((a) => (REJACK[akey("app", a)] = new Date().toISOString())); saveJ(RAKEY, REJACK); render(); return; }
     const db = t.closest("[data-del]"); if (db) { e.preventDefault(); deleteEntry(db.dataset.del); return; }
     const rb = t.closest("[data-restore]"); if (rb) { e.preventDefault(); setArchived(rb.dataset.restore, false); return; }
@@ -541,6 +648,7 @@
   main.addEventListener("toggle", (e) => {     // remember which folds are open across re-renders
     const g = e.target.dataset?.g; if (g) ui.groups[g] = e.target.open;
     if (g === "removed" && e.target.open && !e.target.querySelector(".rm")) render();   // body is built lazily
+    if (g === "more" && e.target.open && !e.target.querySelector(".inner")) render();
     const d = e.target.dataset?.doc; if (d) { if (e.target.open) ui.doc = d; else if (ui.doc === d) ui.doc = null; }
   }, true);
   main.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-id]")) { e.preventDefault(); e.target.click(); } });
@@ -590,16 +698,38 @@
     const swept = sweepArchived();   // date undated archives; auto-delete old ones only if the setting is ON
     applyDeleted();   // also builds ITEMS
     if (swept) setTimeout(() => toast(`${swept} archived entr${swept === 1 ? "y" : "ies"} older than ${AD_DAYS} days deleted (auto-delete is on)`), 300);
-    $("#updated").textContent = "Updated " + (D.generated || "").slice(0, 10);
+    $("#updated").textContent = D.version ? `${D.version} · ${String(D.built || "").replace(/ \(Chiang Mai\)$/, "")}` : "Updated " + (D.generated || "").slice(0, 10);
+    const np = (D.approvals || []).filter((x) => x.status === "pending").length, bd = document.querySelector('.tabbar a[data-tab="approvals"] .badge');
+    if (bd) { bd.textContent = np || ""; bd.hidden = !np; }
     $("#lock").hidden = true;
     route();
   }
   async function getJSON(url) { const r = await fetch(url, { cache: "no-cache" }); if (!r.ok) throw new Error(r.status); return r.json(); }
+  let LOADED = null;   // fingerprint of the data this page shows (iv of the encrypted file, or "generated")
+  function showUpdate() {
+    if (document.getElementById("updbar")) return;
+    const b = document.createElement("button"); b.id = "updbar"; b.type = "button"; b.className = "updbar";
+    b.textContent = "New version ready · tap to refresh"; b.onclick = () => location.reload();
+    document.body.appendChild(b);
+  }
+  async function checkUpdate() {
+    try {
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+      if (reg) { await reg.update(); if (reg.waiting || reg.installing) showUpdate(); }
+    } catch (e) {}
+    try {
+      const r = await fetch((ENC ? "data.enc.json" : "data.json") + "?t=" + Date.now(), { cache: "no-store" });
+      if (r.ok) { const j = await r.json(); const fp = ENC ? j.iv : j.generated; if (LOADED && fp && fp !== LOADED) showUpdate(); }
+    } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && D) checkUpdate(); });
+  window.addEventListener("focus", () => { if (D) checkUpdate(); });
   async function start() {
     let env = null;
     try { env = await getJSON("data.enc.json"); } catch (e) {}
+    if (env) LOADED = env.iv;
     if (!env) {
-      try { setData(await getJSON("data.json")); } catch (e) { main.innerHTML = `<p class="muted center pad">No data found. Run build_data.py, then reload.</p>`; }
+      try { const d0 = await getJSON("data.json"); LOADED = d0.generated; setData(d0); } catch (e) { main.innerHTML = `<p class="muted center pad">No data found. Run build_data.py, then reload.</p>`; }
       return;
     }
     ENC = true;
@@ -633,9 +763,10 @@
   }
 
   if ("serviceWorker" in navigator && /^(https:|http:\/\/(localhost|127\.0\.0\.1))/.test(location.href)) {
-    navigator.serviceWorker.register("sw.js").then((reg) => reg.update()).catch(() => {});
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded && navigator.serviceWorker.controller) { reloaded = true; location.reload(); } });
+    const hadCtl = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => reg.update()).catch(() => {});
+    // a new service worker took over: offer a refresh instead of reloading under her finger (A2)
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadCtl) showUpdate(); });
   }
   start();
 })();
