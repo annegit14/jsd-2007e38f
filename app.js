@@ -7,7 +7,7 @@
   const ui = {                        // view state (kept across tab switches)
     opps: { q: "", lane: "", path: "", tier: "", sort: "rank", watch: false, mail: false },
     list: "overall",                  // overall | speed | pay | fit | reliability | all
-    tr: { q: "", status: "", source: "", period: "0", limit: 50, view: "apps" },
+    tr: { q: "", status: "", lane: "", limit: 60, view: "apps" },
     open: new Set(), groups: {}, doc: null,
   };
 
@@ -146,7 +146,24 @@
   }
   const MBN = { G: "Gmail", I: "iCloud", Y: "Yahoo-legacy", P: "Platform", T: "Phone" };
   const mbChip = (c) => (c && MBN[c] ? `<span class="chip mb mb-${c}" title="Mailbox">${MBN[c]}</span>` : "");
-  const worthChip = (v) => (v != null ? `<span class="chip worth" title="Worth it (0-10)">Worth ${v}</span>` : "");
+  const worthChip = (v) => (v != null ? `<span class="worth-s" title="Worth it (0-10)">★ ${v}</span>` : "");
+  // v23 status categories: one colour each, friendly words only
+  const CLOSED_RX = /archived|closed|reject|not selected|withdrawn|no longer|declin|not viable|position filled|not moving forward|no positions|no vacanc/i;
+  const CATS = { offer: "Offer", interview: "Interview", followup: "Follow-up due", scheduled: "Scheduled", waiting: "Waiting to hear", saved: "Saved", archived: "Archived" };
+  function catOf(t, x) {
+    const st = String(x.st || "");
+    if (t === "app" && (x.arch || isArch("app", x))) return "archived";
+    if (CLOSED_RX.test(st) || (t === "act" && isArch("act", x))) return "archived";
+    if (/^offer|offer (received|accepted|extended|letter)|job offer/i.test(st)) return "offer";
+    if (/interview/i.test(st)) return "interview";
+    if (/scheduled|approved/i.test(st)) return "scheduled";
+    if (/saved/i.test(st) || String(x.p) === "2") return "saved";
+    const d = effDue(t, x), soon = (() => { const z = new Date(); z.setDate(z.getDate() + 7); return iso(z); })();
+    if (d && d <= soon) return "followup";
+    return "waiting";
+  }
+  const catChip = (c) => `<span class="chip cat cat-${c}">${CATS[c]}</span>`;
+  const LANES_T = { pet: "Pet travel", med: "Medical tourism / patients", ai: "Medical AI", esl: "Online English tutoring", gen: "Other" };
   function archBtn(t, x) {
     const k = esc(akey(t, x));
     if (x.ua) return `<span class="muted small arch-all">Archived on all devices</span>${delBtn(k)}`;
@@ -247,7 +264,7 @@
     return `<article class="card opp${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
       <div class="head"><div class="rank${r ? "" : " none"}" title="${pos ? "List position" + (o.rank ? ", overall #" + o.rank : "") : "Overall rank"}">${r || "–"}</div>
         <div class="ttl"><h3>${esc(o.co)}</h3>${o.role ? `<p class="role">${esc(o.role)}</p>` : ""}</div></div>
-      <div class="meta">${o.ws != null ? `<span class="t worth-t">Worth it ${o.ws}</span> · ` : ""}${meta}</div>
+      <div class="meta">${o.ws != null ? `<span class="worth-s">★ ${o.ws}</span> · ` : ""}${meta}</div>
       ${open || hl ? badges(o, hl) : ""}
       ${open ? oppDetail(o) : notePv("job", o)}
     </article>`;
@@ -351,7 +368,6 @@
   /* ---------------- views ---------------- */
   const byId = (id) => D._idx[id];
   function viewHome() {
-    const stats = (D.stats || []).map((s) => `<div class="stat"><div class="v">${esc(s.v)}</div><div class="l">${esc(s.l)}</div></div>`).join("");
     const pend = (D.pending || []).map((p, i) => { const id = "pend:" + i, open = ui.open.has(id);
       return `<li class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><b>${esc(p.when)}</b><span class="nx">${linkify(p.text)}</span></li>`; }).join("");
     const groups = {};
@@ -377,12 +393,17 @@
     const more = `<details class="fold grp more" data-g="more"${moreOpen ? " open" : ""}><summary>More<span class="n">${Math.max(0, todo.length - top7.length)} more · all ${actV.length} by group</span></summary>
       ${moreOpen ? `<div class="inner">${act}${hidden}${actA ? `<a class="hidden-note arch-link" href="#opps/archived">${actA} archived by you · see Jobs › Archived</a>` : ""}</div>` : ""}</details>`;
     const nuOpen = !!ui.groups["nextup"];
-    const nextup = pend ? `<details class="fold grp" data-g="nextup"${nuOpen ? " open" : ""}><summary>Next up (calendar)<span class="n">${(D.pending || []).length}</span></summary><ul class="pending inner">${pend}</ul></details>` : "";
-    return `${repliesCard()}
-      <h2 class="sec">Do next · ${top7.length}</h2><div class="card list donext">${doNext || `<p class="muted center pad">All clear for now.</p>`}</div>
+    const nextup = pend ? `<details class="fold grp" data-g="nextup"${nuOpen ? " open" : ""}><summary>Coming up<span class="n">${(D.pending || []).length}</span></summary><ul class="pending inner">${pend}</ul></details>` : "";
+    // two friendly numbers only: things going + need a follow-up
+    const going = new Set();
+    (D.apps || []).forEach((a) => { const c = catOf("app", a); if (c !== "archived" && c !== "saved" && String(a.p) === "0") going.add(nk(a.co)); });
+    todo.forEach((a) => { if (catOf("act", a) !== "archived") going.add(nk(a.co)); });
+    const fu = new Set(todo.filter((a) => catOf("act", a) === "followup").map((a) => nk(a.co))).size;
+    const hello = `<div class="hello"><div class="hi hi-go"><b>${going.size}</b><span>things going</span></div><div class="hi hi-fu"><b>${fu}</b><span>${fu === 1 ? "needs" : "need"} a follow-up</span></div></div>`;
+    return `${hello}${repliesCard()}
+      <h2 class="sec">Do next</h2><div class="card list donext">${doNext || `<p class="muted center pad">All clear for now.</p>`}</div>
       ${more}
       ${interviewsCard()}
-      ${scorecard()}
       ${nextup}
       <a class="btn more" href="#opps/overall">Top 25 opportunities →</a>`;
   }
@@ -401,32 +422,15 @@
     if (!I.length) return "";
     return `<h2 class="sec">Interviews</h2>${I.map((v) => `<div class="card iv"><div class="top"><b>${esc(v.company)}</b>${v.doc ? `<a class="small" href="#docs/${esc(v.doc)}">Brief →</a>` : ""}</div>
       <p class="small muted">${esc(v.role || "")}${v.who ? " · " + esc(v.who) : ""}</p>
-      <ol class="stages">${(v.stages || []).map((st) => `<li class="${st.done ? "done" : ""}"><span class="dot"></span><b>${esc(st.k)}</b> <span class="small muted">${st.d ? fmtDate(st.d) : ""}${st.time ? " · " + esc(st.time) : ""}</span>${st.note ? `<span class="small muted"> · ${esc(st.note)}</span>` : ""}</li>`).join("")}</ol></div>`).join("")}`;
-  }
-  // A10 weekly scorecard (Mon-Sun, this device's date). Progress only.
-  function weekStart(d = new Date()) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); }
-  function scorecard() {
-    const ws = weekStart(), wd = new Date(ws + "T00:00:00"); wd.setDate(wd.getDate() + 6); const we = iso(wd);
-    const inW = (d) => d && d >= ws && d <= we;
-    const T = (D.touches || []).filter((t) => inW(t[0]));
-    const wl = (D.wl || {})[ws] || {}, M = D.mix || { warm: 5, tailored: 3, platform: 2 };
-    const replies = T.filter((t) => t[3] === "reply").length + (D.replies || []).filter((r) => inW(r.date)).length;
-    const ivs = (D.interviews || []).reduce((n, v) => n + (v.stages || []).filter((s) => /interview/i.test(s.k) && inW(s.d)).length, 0);
-    const warm = T.filter((t) => t[4] === "warm").length, tail = T.filter((t) => t[4] === "tailored").length;
-    const plat = T.filter((t) => t[4] === "platform").length + (wl.platform_onboardings || 0);
-    const bar = (lab, n, goal) => `<div class="mix"><span>${lab}</span><span class="track"><span style="width:${Math.min(100, Math.round((100 * n) / (goal || 1)))}%"></span></span><b>${n}/${goal}</b></div>`;
-    const tile = (v, l) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
-    return `<h2 class="sec">This week · from ${fmtDate(ws)}</h2><div class="card score">
-      <div class="stats">${tile(T.length, "Touches")}${tile(replies, "Replies")}${tile(ivs, "Interviews")}${tile(wl.platform_hours || 0, "Platform hrs")}</div>
-      ${bar("Warm touches", warm, M.warm)}${bar("Tailored applications", tail, M.tailored)}${bar("Platform onboardings", plat, M.platform)}
-      <p class="small muted">Weekly mix target: ${M.warm} warm touches · ${M.tailored} tailored applications · ${M.platform} platform onboardings.</p></div>`;
+      ${v.practice ? `<p class="practice small">💡 ${esc(v.practice)}</p>` : ""}<ol class="stages">${(v.stages || []).map((st) => `<li class="${st.done ? "done" : ""}"><span class="dot"></span><b>${esc(st.k)}</b> <span class="small muted">${st.d ? fmtDate(st.d) : ""}${st.time ? " · " + esc(st.time) : ""}</span>${st.note ? `<span class="small muted"> · ${esc(st.note)}</span>` : ""}</li>`).join("")}</ol></div>`).join("")}`;
   }
   function actionCard(a, id) {
     const open = ui.open.has(id);
-    return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
+    const c = catOf("act", a);
+    return `<article class="row crow c-${c}${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
       <div class="top"><h3>${esc(a.co)}</h3>${dueChip(effDue("act", a), effDue("act", a) !== a.due)}</div>
-      <div class="tags">${mbChip(a.mb)}${worthChip(a.ws)}${approvalFor(a.co) ? `<a class="chip ok" href="#approvals">Needs your OK</a>` : ""}</div>
-      ${a.rm ? `<span class="chip ok rmtag">Removed lead – follow up anyway</span>` : ""}
+      <div class="tags">${catChip(c)}${mbChip(a.mb)}${worthChip(a.ws)}${approvalFor(a.co) ? `<a class="chip ok" href="#approvals">Needs your OK</a>` : ""}</div>
+      ${a.rm ? `<span class="chip info rmtag">Worth one more follow-up</span>` : ""}
       ${a.nx ? `<p class="nx">${linkify(a.nx)}</p>` : ""}${open ? "" : notePv("act", a)}
       ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc], ["Worth it", worthDetail(a)]], a.u,
         (effDue("act", a) ? `<button type="button" class="btn sm" data-snooze="${esc(akey("act", a))}">Snooze 3 days</button>` : "") + archBtn("act", a), emailBlock("act", a), noteBox("act", a)) : ""}
@@ -490,7 +494,7 @@
     const sec = ["job", "act", "app"].map((t) => { const r = A.filter((a) => a.t === t); return r.length ? `<h2 class="sec">${lab[t]} · ${r.length}</h2><div class="card list">${r.map(row).join("")}</div>` : ""; }).join("");
     return `<h2 class="listhead">Archived by me (${A.length})</h2>
       <div class="autodel-box">${autoDelCtl()}<p class="small muted">${autoDelOn() ? `On: entries you archived more than ${AD_DAYS} days ago are deleted from this app when it opens.` : "Off: nothing is deleted automatically."} Applies to this device only.</p></div>
-      <p class="count">Hidden from Today, Jobs and Tracker. Tap Restore to bring an entry back on this device. Entries marked "archived on all devices" can only be restored by asking for them to be taken off the archive list. (Older US applications archived on Oct 11 are under Tracker › Period › Archived.)</p>
+      <p class="count">Hidden from Today, Jobs and Tracker. Tap Restore to bring an entry back on this device. Entries marked "archived on all devices" can only be restored by asking for them to be taken off the archive list. (Older US applications archived on Oct 11 are under Tracker › Archived.)</p>
       ${sec || `<p class="muted center pad">Nothing archived yet. Open any job, application or Act now item and tap Archive.</p>`}`;
   }
   function removedFold() {
@@ -502,40 +506,39 @@
     return `<details class="fold grp rmv" data-g="removed"${open ? " open" : ""}><summary>Removed leads (with reason)<span class="n">${R.length}</span></summary>${body}</details>`;
   }
 
-  // Period filter. Saved-but-not-applied jobs are their own view so they never inflate application counts.
-  const PERIODS = [["0", "Since May 1"], ["1", "Before May"], ["01", "All applied"], ["2", "Saved, not applied"], ["A", "Archived"]];
-  const statusCls = (s) => (/interview/i.test(s) ? "good" : /viewed|scheduled/i.test(s) ? "info" : /saved/i.test(s) ? "ok" : "");
+  // v23 Tracker: running log of EVERY application, newest first, colour by status. Archived only via a small filter.
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
-  let TR = null;   // built once at load from the original data; never mutated by filters
+  let TR = null;   // built once per data load
   function trackerBase() {
     if (TR) return TR;
-    const base = Object.freeze((D.apps || []).map((a) => Object.freeze({ ...a })));
-    // archived = older US applications Anne set aside: only in the "Archived" period, never in the default views/counts
-    // "Archived" also holds entries Anne archived herself (this device or all devices)
-    const hid = (a) => !!a.arch || isArch("app", a);
-    const inP = (a, p) => (p === "A" ? hid(a) : !hid(a) && p.includes(String(a.p ?? 1)));
-    const counts = Object.fromEntries(PERIODS.map(([v]) => [v, base.filter((a) => inP(a, v)).length]));
-    const main = base.filter((a) => String(a.p ?? 1) === "0");   // dropdown options: fixed at load (since-May rows)
-    TR = { base, inP, counts, statuses: Object.freeze(uniq(main.map((a) => a.st))), sources: Object.freeze(uniq(main.map((a) => a.src))) };
+    const base = (D.apps || []).map((a) => ({ a, c: catOf("app", a), lane: laneOf("app", a) }));
+    TR = { base, lanes: uniq(base.map((r) => r.lane)) };
     return TR;
   }
-  function filterApps(base, s, inP) {   // pure: returns a new array, never touches `base`
-    const q = (s.q || "").toLowerCase();
-    return base.filter((a) => inP(a, s.period) && (!s.status || a.st === s.status) && (!s.source || a.src === s.source)
-      && (!q || [a.co, a.role, a.nt, a.nx, noteOf("app", a)].join(" ").toLowerCase().includes(q)))
-      .sort((a, b) => String(b.d || "").localeCompare(String(a.d || "")));
-  }
   function viewTracker() {
-    const stats = (D.stats || []).map((x) => `<div class="stat"><div class="v">${esc(x.v)}</div><div class="l">${esc(x.l)}</div></div>`).join("");
-    const seg = `<div class="seg" role="tablist"><button data-trv="apps" aria-pressed="${ui.tr.view !== "crm"}">Applications</button><button data-trv="crm" aria-pressed="${ui.tr.view === "crm"}">Contacts (${(D.crm || []).length})</button></div>`;
-    return `${stats ? `<div class="stats trstats">${stats}</div>` : ""}${seg}${ui.tr.view === "crm" ? viewCRM() : viewApps()}`;
+    const s = ui.tr, T = trackerBase(), q = (s.q || "").toLowerCase();
+    const seg = `<div class="seg" role="tablist"><button data-trv="apps" aria-pressed="${s.view !== "crm"}">Applications</button><button data-trv="crm" aria-pressed="${s.view === "crm"}">Contacts</button></div>`;
+    if (s.view === "crm") return seg + viewCRM();
+    const arch = s.status === "archived";
+    const list = T.base.filter((r) => (arch ? r.c === "archived" : r.c !== "archived" && (s.status ? r.c === s.status : r.c !== "saved"))
+        && (!s.lane || r.lane === s.lane) && (!q || [r.a.co, r.a.role, r.a.st, r.a.nt, r.a.nx, noteOf("app", r.a)].join(" ").toLowerCase().includes(q)))
+      .sort((x, y) => String(y.a.d || "").localeCompare(String(x.a.d || "")));
+    const shown = list.slice(0, s.limit);
+    const stOpts = ["offer", "interview", "followup", "scheduled", "waiting", "saved"].filter((c) => T.base.some((r) => r.c === c));
+    return `${seg}<div class="controls">
+        <input type="search" placeholder="Search company, role…" value="${esc(s.q)}" data-f="tr.q" aria-label="Search applications">
+        <select data-f="tr.status" aria-label="Status">${opt("", "All active", s.status)}${stOpts.map((c) => opt(c, CATS[c], s.status)).join("")}${opt("archived", "Archived", s.status)}</select>
+        <select data-f="tr.lane" aria-label="Lane">${opt("", "Any lane", s.lane)}${T.lanes.map((l) => opt(l, LANES_T[l] || l, s.lane)).join("")}</select>
+      </div>
+      <div class="legend">${stOpts.map(catChip).join("")}</div>
+      <div class="tlog">${shown.map((r, i) => appRow(r.a, "tr:" + (r.a.co || "") + (r.a.d || "") + i, r.c, r.lane)).join("") || `<p class="muted center pad">Nothing here yet.</p>`}</div>
+      ${list.length > shown.length ? `<button class="btn more" data-more>Show more</button>` : ""}`;
   }
   // A7 contact CRM: one card per company (person, last touch, mailbox, next step)
   function viewCRM() {
     const q = (ui.tr.q || "").toLowerCase();
     const L = (D.crm || []).filter((c) => !q || JSON.stringify(c).toLowerCase().includes(q));
     return `<div class="controls"><input type="search" placeholder="Search company, person…" value="${esc(ui.tr.q)}" data-f="tr.q" aria-label="Search contacts"></div>
-      <p class="count">${plural(L.length, "company", "companies")} · latest touch first</p>
       <div class="card list">${L.map((c, i) => { const id = "crm:" + i, open = ui.open.has(id);
         return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}">
           <div class="top"><h3>${esc(c.co)}</h3>${mbChip(c.mb)}<span class="date">${c.last ? "last " + fmtDate(c.last) : ""}</span></div>
@@ -543,31 +546,14 @@
           ${c.nx ? `<p class="nx">${linkify(c.nx)}</p>` : ""}
           ${open ? rowDetail([["Person", c.who], ["Email", c.em], ["Last", c.last && fmtDate(c.last)], ["Mailbox", MBN[c.mb]], ["Next step", c.nx], ["Due", c.due && fmtDate(c.due)], ["Note", c.note]], null) : ""}</article>`; }).join("") || `<p class="muted center pad">No matches.</p>`}</div>`;
   }
-  function viewApps() {
-    const s = ui.tr, T = trackerBase();
-    if (!PERIODS.some(([v]) => v === s.period)) s.period = "0";
-    const list = filterApps(T.base, s, T.inP);
-    const sel = (key, label, vals) => `<select data-f="tr.${key}" aria-label="${label}">${opt("", label, s[key])}${vals.map((v) => opt(v, v, s[key])).join("")}</select>`;
-    const shown = list.slice(0, s.limit);
-    const what = s.period === "2" ? plural(list.length, "saved job") : plural(list.length, "application");
-    return `<div class="controls">
-        <input type="search" placeholder="Search company, role, notes…" value="${esc(s.q)}" data-f="tr.q" aria-label="Search applications">
-        <select data-f="tr.period" aria-label="Period">${PERIODS.map(([v, l]) => opt(v, `${l} (${T.counts[v]})`, s.period)).join("")}</select>
-        ${sel("status", "Any status", T.statuses)}
-        ${sel("source", "Any source", T.sources)}
-      </div>
-      <p class="count">${what} · newest first</p>
-      <div class="card list">${shown.map((a, i) => appRow(a, "tr:" + (a.co || "") + (a.d || "") + i)).join("") || `<p class="muted center pad">No matches.</p>`}</div>
-      ${list.length > shown.length ? `<button class="btn more" data-more>Show ${Math.min(50, list.length - shown.length)} more</button>` : ""}`;
-  }
-  function appRow(a, id) {
+  function appRow(a, id, c, lane) {
     const open = ui.open.has(id);
-    return `<article class="row${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
-      <div class="top"><h3>${esc(a.co)}</h3>${mbChip(a.mb)}<span class="date">${fmtDate(a.d)}</span></div>
-      <div class="sub">${a.st ? `<span class="chip ${statusCls(a.st)}">${esc(a.st.replace(/ \(.*\)$/, ""))}</span>` : ""}<span class="role">${esc(a.role || "")}</span></div>${open ? "" : notePv("app", a)}
-      ${isArch("app", a) ? `<div class="archtag">${rejArch("app", a) && !byMe("app", a) ? `<span class="chip info">archived (closed)</span>${a.arch ? "" : `<button type="button" class="btn sm" data-unrej="${esc(akey("app", a))}">Restore</button>`}`
-        : `<span class="chip info">${a.ua ? "archived on all devices" : "archived by you"}</span>${a.ua ? "" : `<button type="button" class="btn sm" data-restore="${esc(akey("app", a))}">Restore</button>`}`}${delBtn(esc(akey("app", a)))}</div>` : ""}
-      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Next", a.nx], ["Notes", a.nt], ["Fit", a.fit], ["Source", a.src], ["Where", a.loc], ["Due", a.due && fmtDate(a.due)]], a.u, archBtn("app", a), emailBlock("app", a), noteBox("app", a)) : ""}
+    c = c || catOf("app", a);
+    return `<article class="trow c-${c}${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
+      <div class="top"><h3>${esc(a.co)}</h3><span class="date">${fmtDate(a.d)}</span></div>
+      <p class="role">${esc(a.role || "")}</p>
+      <div class="tags">${catChip(c)}${mbChip(a.mb)}${lane && lane !== "gen" ? `<span class="chip lane">${esc(LANES_T[lane])}</span>` : ""}</div>${open ? "" : notePv("app", a)}
+      ${open ? rowDetail([["Role", a.role], ["Status", a.st], ["Next", a.nx], ["Notes", a.nt], ["Source", a.src], ["Where", a.loc], ["Due", effDue("app", a) && fmtDate(effDue("app", a))]], a.u, archBtn("app", a), emailBlock("app", a), noteBox("app", a)) : ""}
     </article>`;
   }
 
@@ -640,7 +626,7 @@
     const rb = t.closest("[data-restore]"); if (rb) { e.preventDefault(); setArchived(rb.dataset.restore, false); return; }
     if (t.closest("a") || t.closest("[data-stop]") || t.closest("summary")) return;
     const l = t.closest("[data-list]"); if (l) { ui.list = l.dataset.list; history.replaceState(null, "", "#opps/" + ui.list); render(); return; }
-    if (t.closest("[data-more]")) { ui.tr.limit += 50; render(); return; }
+    if (t.closest("[data-more]")) { ui.tr.limit += 60; render(); return; }
     if (t.closest("[data-lock]")) { forgetKey().then(() => location.reload()); return; }
     const card = t.closest("[data-id]");
     if (card) { const id = card.dataset.id; ui.open.has(id) ? ui.open.delete(id) : ui.open.add(id); render(); }
@@ -656,7 +642,7 @@
     const f = e.target.dataset.f; if (!f) return;
     const [grp, key] = f.split(".");
     ui[grp][key] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
-    if (grp === "tr") ui.tr.limit = 50;
+    if (grp === "tr") ui.tr.limit = 60;
     render();
   };
   main.addEventListener("input", (e) => { if (e.target.matches("[data-note]")) onNoteInput(e.target); else if (e.target.type === "search") onFilter(e); });
