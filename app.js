@@ -26,10 +26,10 @@
 
   /* ---------------- tiny safe markdown ---------------- */
   function inline(t) {
-    let s = esc(t);
+    let s = esc(String(t ?? "").replace(/\\([\\`*_{}\[\]()#+\-.!"'|])/g, "$1"));
     s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+    s = s.replace(/\*\*(\S(?:.*?\S)?)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
     s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
     s = s.replace(/(^|[\s(:])((?:[a-z0-9-]+\.)+(?:com|org|net|ai|gov|io|co|app)(?:\/[^\s<)]*)?)(?=[\s).,;]|$)/gi, (m, pre, host) => host.includes("@") ? m : `${pre}<a href="https://${host}" target="_blank" rel="noopener noreferrer">${host}</a>`);
     s = s.replace(/(^|[\s(>])([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g, '$1<a href="mailto:$2">$2</a>');
@@ -39,7 +39,7 @@
     const lines = String(src || "").replace(/\r/g, "").split("\n");
     let html = "", list = null, para = [], quote = [];
     const flushP = () => { if (para.length) { html += `<p>${inline(para.join(" "))}</p>`; para = []; } };
-    const flushL = () => { if (list) { html += `<${list.t}>${list.items.map((i) => `<li>${i}</li>`).join("")}</${list.t}>`; list = null; } };
+    const flushL = () => { if (list) { html += `<${list.t}>${list.items.map((i) => `<li>${i.h}${i.sub.length ? `<ul>${i.sub.map((x) => `<li>${x}</li>`).join("")}</ul>` : ""}</li>`).join("")}</${list.t}>`; list = null; } };
     const flushQ = () => { if (quote.length) { html += `<blockquote>${quote.map(inline).join("<br>")}</blockquote>`; quote = []; } };
     const flush = () => { flushP(); flushL(); flushQ(); };
     for (let i = 0; i < lines.length; i++) {
@@ -62,12 +62,12 @@
         flushP(); flushQ();
         const t = /\d/.test(m[2]) ? "ol" : "ul";
         const indent = m[1].length;
-        if (list && indent >= 2 && list.items.length) { list.items[list.items.length - 1] += (t === "ol" ? "<br>" : "<br>• ") + inline(m[3]); continue; }
+        if (list && indent >= 2 && list.items.length) { list.items[list.items.length - 1].sub.push(inline(m[3])); continue; }
         if (!list || list.t !== t) { flushL(); list = { t, items: [] }; }
-        list.items.push(inline(m[3]));
+        list.items.push({ h: inline(m[3]), sub: [] });
         continue;
       }
-      if (list && /^\s{2,}\S/.test(l)) { list.items[list.items.length - 1] += " " + inline(l.trim()); continue; }
+      if (list && /^\s{2,}\S/.test(l)) { const it = list.items[list.items.length - 1]; if (it.sub.length) it.sub[it.sub.length - 1] += " " + inline(l.trim()); else it.h += " " + inline(l.trim()); continue; }
       flushL(); flushQ(); para.push(l.trim());
     }
     flush();
@@ -107,7 +107,7 @@
     const post = safeUrl(o.url) ? `<a class="btn" href="${esc(o.url)}" target="_blank" rel="noopener noreferrer">Posting ↗</a>` : "";
     const contact = [o.who, o.est].filter(Boolean).join(" · ");
     const rows = [["Why these scores", o.why], ["How to apply", o.apply], ["Resume", o.resume], ["Email angle", o.angle],
-      ["Contact", contact], ["Legal", o.legal], ["Work", o.work], ["Lane / path", [o.lane, o.path && "Path " + o.path].filter(Boolean).join(" · ")],
+      ["Contact", contact], ["Legal", o.legal], ["Work", o.work], ["Lane / path", [o.lane0 || o.lane, o.path && "Path " + o.path].filter(Boolean).join(" · ")],
       ["Reviews", o.rev]].filter(([, v]) => v);
     const host = (u) => new URL(u).hostname.replace(/^www\./, "");
     const proof = safeUrl(o.proof) || o.ev ? `<dt>Thailand proof</dt><dd>${o.ev ? esc(o.ev) + " " : ""}${safeUrl(o.proof) ? `<a href="${esc(o.proof)}" target="_blank" rel="noopener noreferrer">${esc(host(o.proof))} ↗</a>` : ""}${o.dv ? ` <span class="muted small">checked ${esc(String(o.dv).slice(0, 10))}</span>` : ""}</dd>` : "";
@@ -131,12 +131,16 @@
     const act = Object.keys(groups).sort().map((k, gi) => {
       const rows = groups[k], key = "g:" + k;
       const isOpen = ui.groups[key] ?? (/^[01]\b/.test(k) || gi < 2);
+      const gn = (D.act_notes || {})[k];
       return `<details class="fold grp" data-g="${esc(key)}"${isOpen ? " open" : ""}><summary>${esc(k.replace(/^\d+\s*-\s*/, ""))}<span class="n">${rows.length}</span></summary>
-        ${rows.map((a, i) => actionCard(a, "act:" + k + i)).join("")}</details>`;
+        ${gn ? `<p class="gnote">${esc(gn)}</p>` : ""}${rows.map((a, i) => actionCard(a, "act:" + k + i)).join("")}</details>`;
     }).join("");
+    const H = D.act_hidden || [];
+    const hidden = H.length ? `<details class="hidden-note"><summary>${H.length} removed-lead item${H.length === 1 ? "" : "s"} hidden</summary><ul>${H.map((h) =>
+      `<li><b>${esc(h.co)}</b>: Removed lead – ${esc(h.why || "see reason in Jobs → All → Removed leads")}</li>`).join("")}</ul></details>` : "";
     return `${stats ? `<div class="stats">${stats}</div>` : ""}
       ${pend ? `<h2 class="sec">Next up</h2><ul class="card pending">${pend}</ul>` : ""}
-      ${act ? `<h2 class="sec">Act now · ${(D.act || []).length}</h2>${act}` : ""}
+      ${act || hidden ? `<h2 class="sec">Act now · ${(D.act || []).length}</h2>${act}${hidden}` : ""}
       <a class="btn more" href="#opps/overall">Top 25 opportunities →</a>`;
   }
   const dueChip = (due) => { if (!due) return ""; const over = due <= new Date().toISOString().slice(0, 10); return `<span class="chip ${over ? "bad" : "info"}">${over ? "Due " : ""}${fmtDate(due)}</span>`; };
@@ -155,7 +159,7 @@
   }
 
   const SORTS = { rank: "Rank", speed: "Speed", pay: "Pay", fit: "Fit", reliability: "Reliability", odds: "Interview odds" };
-  const LISTS = [["overall", "Top 25"], ["speed", "Speed"], ["pay", "Pay"], ["fit", "Fit"], ["reliability", "Reliability"], ["all", "All"]];
+  const LISTS = [["overall", "Top", "overall"], ["speed", "Speed", "speed"], ["pay", "Pay", "pay"], ["fit", "Fit", "fit"], ["reliability", "Reliability", "reliability"], ["all", "All", ""]];
   function sortVal(o, k) {
     if (k === "rank") return o.rank == null ? 1e9 - (o.rs ?? 0) : o.rank;
     const i = SC.findIndex(([x]) => x === k);
@@ -164,12 +168,15 @@
   function viewOpps() {
     const all = D.opps || [];
     if (!LISTS.find(([k]) => k === ui.list)) ui.list = "overall";
-    const seg = `<div class="seg" role="tablist">${LISTS.map(([k, l]) => `<button data-list="${k}" aria-pressed="${k === ui.list}">${l}${k === "all" ? ` <small>${all.filter((o) => !o.w).length}</small>` : ""}</button>`).join("")}</div>`;
+    const nList = (k) => (k === "all" ? all.filter((o) => !o.w).length : ((D.top || {})[k] || []).length);
+    const seg = `<div class="seg" role="tablist">${LISTS.map(([k, l]) => `<button data-list="${k}" aria-pressed="${k === ui.list}">${l} (${nList(k)})</button>`).join("")}</div>`;
     const note = D.score_note ? `<details class="note"><summary>How scores work</summary><p>${esc(D.score_note)}</p></details>` : "";
     if (ui.list !== "all") {
       const ids = (D.top || {})[ui.list] || [];
       const hl = ui.list === "overall" ? null : ui.list;
-      return `${seg}${ids.map((id, i) => { const o = byId(id); return o ? oppCard(o, "l-" + ui.list, hl, i + 1) : ""; }).join("") || `<p class="muted center pad">Nothing on this list yet.</p>`}${note}`;
+      const cur = LISTS.find(([k]) => k === ui.list);
+      const head = `<h2 class="listhead">Top ${ids.length}${ui.list === "overall" ? " overall" : " by " + cur[2]}</h2>`;
+      return `${seg}${head}${ids.map((id, i) => { const o = byId(id); return o ? oppCard(o, "l-" + ui.list, hl, i + 1) : ""; }).join("") || `<p class="muted center pad">Nothing on this list yet.</p>`}${note}`;
     }
     const s = ui.opps;
     let list = all.filter((o) => (s.watch || !o.w) && (!s.mail || (o.emails || []).length)
@@ -180,7 +187,7 @@
     return `${seg}<div class="controls">
         <input type="search" placeholder="Search company, role, notes…" value="${esc(s.q)}" data-f="opps.q" aria-label="Search opportunities">
         <select data-f="opps.sort" aria-label="Sort by">${Object.entries(SORTS).map(([k, v]) => opt(k, "Sort: " + v, s.sort)).join("")}</select>
-        ${sel("lane", "Any lane", uniq(all.map((o) => o.lane)))}
+        ${sel("lane", "Any lane", (D.lanes || []).filter((l) => all.some((o) => o.lane === l)).concat(uniq(all.map((o) => o.lane)).filter((l) => !(D.lanes || []).includes(l))))}
         ${sel("tier", "Tier", uniq(all.map((o) => o.tier)))}
         ${sel("path", "Path", uniq(all.map((o) => o.path)))}
         <label class="check"><input type="checkbox" data-f="opps.mail"${s.mail ? " checked" : ""}> Has email</label>
@@ -198,23 +205,40 @@
     return `<details class="fold grp rmv" data-g="removed"${open ? " open" : ""}><summary>Removed leads (with reason)<span class="n">${R.length}</span></summary>${body}</details>`;
   }
 
-  const PERIODS = ["Since May 1", "Before May", "Saved, not applied"];
+  // Period filter. Saved-but-not-applied jobs are their own view so they never inflate application counts.
+  const PERIODS = [["0", "Since May 1"], ["1", "Before May"], ["01", "All applied"], ["2", "Saved, not applied"]];
   const statusCls = (s) => (/interview/i.test(s) ? "good" : /reject|scam/i.test(s) ? "bad" : /viewed/i.test(s) ? "info" : /saved/i.test(s) ? "ok" : "");
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+  let TR = null;   // built once at load from the original data; never mutated by filters
+  function trackerBase() {
+    if (TR) return TR;
+    const base = Object.freeze((D.apps || []).map((a) => Object.freeze({ ...a })));
+    const inP = (a, p) => p.includes(String(a.p ?? 1));
+    const counts = Object.fromEntries(PERIODS.map(([v]) => [v, base.filter((a) => inP(a, v)).length]));
+    const main = base.filter((a) => inP(a, "0"));   // dropdown options: fixed at load, from the default view
+    TR = { base, inP, counts, statuses: Object.freeze(uniq(main.map((a) => a.st))), sources: Object.freeze(uniq(main.map((a) => a.src))) };
+    return TR;
+  }
+  function filterApps(base, s, inP) {   // pure: returns a new array, never touches `base`
+    const q = (s.q || "").toLowerCase();
+    return base.filter((a) => inP(a, s.period) && (!s.status || a.st === s.status) && (!s.source || a.src === s.source)
+      && (!q || [a.co, a.role, a.nt, a.nx].join(" ").toLowerCase().includes(q)))
+      .sort((a, b) => String(b.d || "").localeCompare(String(a.d || "")));
+  }
   function viewTracker() {
-    const s = ui.tr, all = D.apps || [];
-    let list = all.filter((a) => (s.period === "" || String(a.p) === s.period) && (!s.status || a.st === s.status) && (!s.source || a.src === s.source));
-    if (s.q) { const q = s.q.toLowerCase(); list = list.filter((a) => [a.co, a.role, a.nt, a.nx].join(" ").toLowerCase().includes(q)); }
-    list.sort((a, b) => String(b.d || "").localeCompare(String(a.d || "")));
-    const pool = all.filter((a) => s.period === "" || String(a.p) === s.period);
+    const s = ui.tr, T = trackerBase();
+    if (!PERIODS.some(([v]) => v === s.period)) s.period = "0";
+    const list = filterApps(T.base, s, T.inP);
     const sel = (key, label, vals) => `<select data-f="tr.${key}" aria-label="${label}">${opt("", label, s[key])}${vals.map((v) => opt(v, v, s[key])).join("")}</select>`;
     const shown = list.slice(0, s.limit);
+    const what = s.period === "2" ? plural(list.length, "saved job") : plural(list.length, "application");
     return `<div class="controls">
         <input type="search" placeholder="Search company, role, notes…" value="${esc(s.q)}" data-f="tr.q" aria-label="Search applications">
-        <select data-f="tr.period" aria-label="Period">${opt("", "All periods", s.period)}${PERIODS.map((v, i) => opt(i, v, s.period)).join("")}</select>
-        ${sel("status", "Any status", uniq(pool.map((a) => a.st)))}
-        ${sel("source", "Any source", uniq(pool.map((a) => a.src)))}
+        <select data-f="tr.period" aria-label="Period">${PERIODS.map(([v, l]) => opt(v, `${l} (${T.counts[v]})`, s.period)).join("")}</select>
+        ${sel("status", "Any status", T.statuses)}
+        ${sel("source", "Any source", T.sources)}
       </div>
-      <p class="count">${list.length} applications · newest first</p>
+      <p class="count">${what} · newest first</p>
       <div class="card list">${shown.map((a, i) => appRow(a, "tr:" + (a.co || "") + (a.d || "") + i)).join("") || `<p class="muted center pad">No matches.</p>`}</div>
       ${list.length > shown.length ? `<button class="btn more" data-more>Show ${Math.min(50, list.length - shown.length)} more</button>` : ""}`;
   }
@@ -304,7 +328,7 @@
     return JSON.parse(new TextDecoder().decode(pt));
   }
   function setData(d) {
-    D = d; D._idx = {};
+    D = d; D._idx = {}; TR = null;
     (D.opps || []).forEach((o) => (D._idx[o.id] = o));
     // expand the compact tracker encoding (shared-string indexes + URL prefix codes)
     const W = D.dict || [], P = D.upfx || {};
@@ -331,6 +355,14 @@
     main.innerHTML = "";
     $("#lock").hidden = false;
     setTimeout(() => $("#pw").focus(), 50);
+    const eye = $("#pwToggle");
+    if (eye) eye.onclick = () => {
+      const show = $("#pw").type === "password";
+      $("#pw").type = show ? "text" : "password";
+      eye.setAttribute("aria-pressed", String(show));
+      eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      $("#pw").focus();
+    };
     $("#lockForm").onsubmit = async (ev) => {
       ev.preventDefault();
       const btn = $("#unlockBtn"); btn.disabled = true; btn.textContent = "Unlocking…"; $("#lockMsg").textContent = "";
@@ -338,7 +370,7 @@
         const key = await deriveKey($("#pw").value, env);
         const data = await decrypt(key, env);
         if ($("#remember").checked) await saveKey(key);  // non-extractable CryptoKey; passphrase itself is never stored
-        $("#pw").value = ""; $("#pw").blur();   // close the iOS keyboard before the app shows
+        $("#pw").value = ""; $("#pw").type = "password"; $("#pw").blur();   // close the iOS keyboard before the app shows
         setData(data);
       } catch (e) {
         $("#lockMsg").textContent = "That password didn't work. Try again.";

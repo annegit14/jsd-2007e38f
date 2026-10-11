@@ -25,8 +25,11 @@
     <img src="icons/icon-192.png" alt="" width="72" height="72">
     <h1>Job Search</h1>
     <p class="muted">This dashboard is encrypted. Enter your password to open it.</p>
-    <label class="sr" for="pw">Passphrase</label>
-    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+    <label class="sr" for="pw">Password</label>
+    <div class="pw-wrap">
+      <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+      <button type="button" id="pwToggle" class="pw-eye" aria-label="Show password" aria-pressed="false" aria-controls="pw"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="slash" d="M4 4l16 16"/></svg></button>
+    </div>
     <label class="check"><input id="remember" type="checkbox" checked> Remember on this device</label>
     <button type="submit" class="btn primary" id="unlockBtn">Unlock</button>
     <p id="lockMsg" class="lock-msg" role="alert"></p>

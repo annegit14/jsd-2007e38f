@@ -165,8 +165,8 @@ details.note summary{cursor:pointer}
 .lock-card{width:100%;max-width:360px;text-align:center}
 .lock-card img{border-radius:18px}
 .lock-card h1{margin:12px 0 4px;font-size:24px}
-.lock-card input[type=password]{width:100%;font:inherit;font-size:17px;min-height:50px;border-radius:12px;border:1px solid var(--line);
-  background:var(--card);color:var(--ink);padding:10px 14px;margin:14px 0 10px}
+.lock-card #pw{width:100%;font:inherit;font-size:17px;min-height:50px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink);padding:10px 52px 10px 14px;margin:0}
 .lock-card .btn{width:100%;min-height:50px;font-size:17px}
 .lock-card .check{justify-content:center;min-height:44px;font-size:15px}
 .lock-msg{color:var(--bad);min-height:1.5em}
@@ -177,3 +177,15 @@ details.rmv>.sec{margin:12px 12px 4px}
 .rm{padding:6px 12px;border-top:1px solid var(--line);font-size:13.5px}
 .rm p{margin:2px 0 0;color:var(--muted);font-size:13px}
 details.rmv{padding-bottom:4px;margin-top:10px}
+.pw-wrap{position:relative;margin:14px 0 10px}
+.pw-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;background:none;color:var(--muted);border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.pw-eye svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pw-eye[aria-pressed=true] .slash{display:none}
+.pw-eye:focus-visible{outline:2px solid var(--accent)}
+/* act-now group notes, hidden removed leads, list headings */
+.gnote{margin:2px 12px 6px;font-size:12.5px;color:var(--muted)}
+.hidden-note{margin:8px 4px;font-size:12.5px;color:var(--muted)}
+.hidden-note summary{cursor:pointer}
+.hidden-note li{margin:3px 0}
+.listhead{font-size:15px;margin:2px 4px 8px}
+.md ul ul,.md ol ul{margin:2px 0 2px;padding-left:18px}
