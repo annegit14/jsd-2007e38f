@@ -587,8 +587,35 @@
           ${open ? `<div class="detail" data-stop><dl class="grid"><dt>To</dt><dd>${esc(x.to || "")}${x.person ? " (" + esc(x.person) + ")" : ""}</dd><dt>Subject</dt><dd>${esc(x.subject || "")}</dd></dl>
             ${x.text ? `<pre class="mailtext">${esc(x.text)}</pre>` : ""}${x.text_note ? `<p class="small muted">${esc(x.text_note)}</p>` : ""}</div>` : ""}</article>`; }).join("") || `<p class="muted center pad">Nothing waiting for approval.</p>`}</div>`;
   }
+  /* ---------------- v28: My To-Dos (things only Anne does herself; Done ticks saved on this device) ---------------- */
+  const TKEY = "ag-dash-todo-done";   // { id: ISO time ticked }. NOT cleared by "Lock & forget".
+  let TD = loadJ(TKEY);
+  const TCOL = ["#0f766e", "#4338ca", "#b45309", "#be185d", "#7e22ce", "#0369a1", "#15803d", "#c2410c"];
+  function viewTodos() {
+    const T = D.todos || [], left = T.filter((t) => !TD[t.id]).length;
+    const card = (t, i) => { const done = !!TD[t.id], u = safeUrl(t.link);
+      return `<article class="todo${done ? " done" : ""}" style="--tc:${TCOL[i % TCOL.length]}">
+        <div class="todo-emo" aria-hidden="true">${esc(t.emoji || "✅")}</div>
+        <div class="todo-body"><h3><span class="todo-n">${i + 1}.</span> ${esc(t.title)}</h3>
+          ${t.desc ? `<p>${linkify(t.desc)}</p>` : ""}
+          ${t.due || u ? `<div class="tags">${t.due ? dueChip(t.due) : ""}${u ? `<a class="chip info" href="${esc(u)}" target="_blank" rel="noopener noreferrer">Open ↗</a>` : ""}</div>` : ""}
+          ${done ? `<p class="todo-when">✅ Done ${fmtDate(String(TD[t.id]).slice(0, 10))}</p>` : ""}</div>
+        <button type="button" class="todo-chk" data-todo="${esc(t.id)}" aria-pressed="${done}" aria-label="${done ? "Mark not done: " : "Mark done: "}${esc(t.title)}">${done ? "✓ Done" : "Done?"}</button>
+      </article>`; };
+    const order = T.map((t, i) => [t, i]).sort((a, b) => (!!TD[a[0].id] - !!TD[b[0].id]) || a[1] - b[1]);
+    return `<div class="todo-hi"><b>${left}</b><span>${left === 1 ? "thing" : "things"} only you can do${T.length - left ? ` · ${T.length - left} done 🎉` : ""}</span></div>
+      <p class="count">Your own list, one at a time. Tap <b>Done?</b> when finished (saved on this phone; tap again to undo).</p>
+      <div class="todos">${order.map(([t, i]) => card(t, i)).join("") || `<p class="muted center pad">Nothing on your list right now. 🎉</p>`}</div>`;
+  }
+  function toggleTodo(id) {
+    const was = !!TD[id];
+    if (was) delete TD[id]; else TD[id] = new Date().toISOString();
+    saveJ(TKEY, TD); render();
+    if (!was) toast("Nice! Marked done ✅", () => { delete TD[id]; saveJ(TKEY, TD); render(); });
+  }
+
   /* ---------------- router ---------------- */
-  const VIEWS = { home: ["Do next", viewHome], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
+  const VIEWS = { home: ["Do next", viewHome], todos: ["My To-Dos", viewTodos], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
   const ALIAS = { top: "opps", strategy: "docs", legal: "docs" };
   function route() {
     let [tab, sub] = (location.hash.slice(1) || "home").split("/");
@@ -615,6 +642,7 @@
   }
   main.addEventListener("click", (e) => {
     const t = e.target;
+    const tdb = t.closest("[data-todo]"); if (tdb) { e.preventDefault(); toggleTodo(tdb.dataset.todo); return; }
     const ab = t.closest("[data-arch]"); if (ab) { e.preventDefault(); setArchived(ab.dataset.arch, true); return; }
     if (t.closest("[data-export]")) { exportNotes(); return; }
     const ub = t.closest("[data-unrej]"); if (ub) { e.preventDefault(); const k = ub.dataset.unrej; UNREJ[k] = new Date().toISOString(); saveJ(UKEY, UNREJ); TR = null; render();
