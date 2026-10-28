@@ -614,8 +614,143 @@
     if (!was) toast("Nice! Marked done ✅", () => { delete TD[id]; saveJ(TKEY, TD); render(); });
   }
 
+  /* ---------------- v29: Calendar (read-only; appointments from 00_Index/interviews.json, local time per 00_Index/travel_zones.json) ---------------- */
+  ui.cal = { view: "agenda", ym: null, sel: null, also: "", open: {} };
+  const _dtf = {};
+  const fmtIn = (tz, o) => { const k = tz + JSON.stringify(o); return _dtf[k] || (_dtf[k] = new Intl.DateTimeFormat("en-US", Object.assign({ timeZone: tz }, o))); };
+  const dayIn = (tz, t) => { const p = {}; fmtIn(tz, { year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(t).forEach((x) => (p[x.type] = x.value)); return `${p.year}-${p.month}-${p.day}`; };
+  const timeIn = (tz, t) => fmtIn(tz, { hour: "numeric", minute: "2-digit" }).format(t);
+  const dayLong = (s) => new Date(s + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" });
+  const dayShort = (s) => new Date(s + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+  const addDays = (s, n) => { const d = new Date(s + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const calZ = () => { const Z = D.zones || {}; return { R: (Z.ranges && Z.ranges.length ? Z.ranges : [{ tz: "America/New_York", label: "US Eastern" }]), A: Z.also || [], E: Z.events || [] }; };
+  const inR = (r, day) => (!r.from || day >= r.from) && (!r.to || day <= r.to);
+  function zoneForDate(day) { const { R } = calZ(); return R.find((r) => inR(r, day)) || (R[0].from && day < R[0].from ? R[0] : R[R.length - 1]); }
+  function zoneForInstant(t) { const { R } = calZ(); return R.find((r) => inR(r, dayIn(r.tz, t))) || zoneForDate(dayIn(R[0].tz, t)); }
+  const calToday = () => { const z = zoneForInstant(new Date()); return dayIn(z.tz, new Date()); };
+  const calCol = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TCOL[h % TCOL.length]; };
+  const tParse = (u) => { const t = u ? new Date(u) : null; return t && !isNaN(t) ? t : null; };
+  const CALL_RX = /\b(call|calls|meeting|meet|interview|zoom|teams|video)\b/i;
+  function calItems() {
+    const out = [];
+    (D.interviews || []).forEach((v) => (v.stages || []).forEach((s) => {
+      const t = tParse(s.start_utc); if (!t && !s.d) return;
+      const z = t ? zoneForInstant(t) : zoneForDate(s.d), day = t ? dayIn(z.tz, t) : s.d;
+      const end = t && s.dur_min ? new Date(t.getTime() + s.dur_min * 60000) : null;
+      const flags = [];
+      if (s.proposed) flags.push(["info", "Proposed · not confirmed"]);
+      if (s.tz_unconfirmed) flags.push(["ok", "Time zone unconfirmed"]);
+      out.push({ kind: "appt", day, t, end, z, emo: "", title: v.company, k: s.k, who: v.who || "", sub: [v.role, v.who].filter(Boolean).join(" · "),
+        orig: s.time || "", note: s.cal_note || s.note || "", flags, done: !!s.done, col: calCol(v.company) });
+    }));
+    calZ().E.forEach((e) => {
+      const t = tParse(e.start_utc), z = t ? zoneForInstant(t) : zoneForDate(e.d), end = tParse(e.end_utc);
+      const endZ = e.end_tz ? { tz: e.end_tz, label: e.end_label || e.end_tz } : null;
+      out.push({ kind: "travel", day: e.d, t, end, z, endZ, emo: e.emoji || "✈️", title: e.title, k: "", sub: "", orig: e.time || "", note: e.note || "",
+        flags: e.unconfirmed ? [["ok", "Times unconfirmed"]] : [], done: false, col: "#0369a1" });
+    });
+    const named = (day) => out.filter((x) => x.day === day).map((x) => (x.title + " " + x.sub).toLowerCase()).join(" ");
+    (D.todos || []).forEach((td) => {
+      if (!td.due || !CALL_RX.test(td.title)) return;
+      const words = (String(td.title).split(":")[0].toLowerCase().match(/[\p{L}]{4,}/gu) || []).filter((w) => !/^(call|calls|meeting|video|attorney|attorneys|watch|this|week|interview|sales)$/.test(w));
+      const hay = named(td.due);
+      if (words.some((w) => hay.includes(w))) return;   // already on the calendar from interviews.json
+      out.push({ kind: "todo", day: td.due, t: null, end: null, z: zoneForDate(td.due), emo: td.emoji || "✅", title: td.title, k: "", sub: "Reminder from My To-Dos",
+        orig: "", note: td.desc || "", flags: [], done: !!TD[td.id], col: "#be185d" });
+    });
+    return out.sort((a, b) => a.day.localeCompare(b.day) || ((a.t ? a.t.getTime() : -1) - (b.t ? b.t.getTime() : -1)) || a.title.localeCompare(b.title));
+  }
+  function calTime(x) {
+    if (!x.t) return x.kind === "todo" ? `<span class="cal-t">Reminder</span>` : `<span class="cal-t">${x.orig ? "See note" : "Time TBD"}</span>`;
+    let s = timeIn(x.z.tz, x.t);
+    if (x.end) {
+      const ez = x.endZ || x.z, ed = dayIn(ez.tz, x.end);
+      s += ` – ${ed !== x.day ? dayShort(ed).replace(/,.*$/, "") + " " : ""}${timeIn(ez.tz, x.end)}${ez.label !== x.z.label ? " " + esc(ez.label) : ""}`;
+    }
+    return `<span class="cal-t">${s}</span><span class="cal-z">${esc(x.z.label)}</span>`;
+  }
+  function calAlso(x) {
+    const a = ui.cal.also; if (!a || !x.t) return "";
+    const z = calZ().A.find((r) => r.tz === a); if (!z || z.label === x.z.label) return "";
+    const d = dayIn(z.tz, x.t);
+    return `<p class="cal-also">= ${timeIn(z.tz, x.t)} ${esc(z.label)}${d !== x.day ? ` (${dayShort(d)})` : ""}</p>`;
+  }
+  /* v30: compact one-line rows; tap (or Enter/Space) opens an accordion with the full details. Open state kept in ui.cal.open across re-renders. */
+  const calKey = (x) => [x.kind, x.day, x.t ? x.t.toISOString() : "", x.title, x.k].join("|");
+  const calShortFlag = (l) => l.replace(/ · not confirmed$/, "");
+  function calTimeShort(x) {
+    if (!x.t) return x.kind === "todo" ? `<span class="cal-t">Reminder</span>` : `<span class="cal-t">${x.orig ? "See note" : "Time TBD"}</span>`;
+    return `<span class="cal-t">${timeIn(x.z.tz, x.t)}</span><span class="cal-z">${esc(x.z.label)}</span>`;
+  }
+  function calRange(x) {   // full start–end (only when there is an end time); the row shows the start only
+    if (!x.t || !x.end) return "";
+    const ez = x.endZ || x.z, ed = dayIn(ez.tz, x.end), dz = ez.label !== x.z.label;
+    return `<p class="cal-range">🕑 ${timeIn(x.z.tz, x.t)}${dz ? " " + esc(x.z.label) : ""} – ${ed !== x.day ? dayShort(ed).replace(/,.*$/, "") + " " : ""}${timeIn(ez.tz, x.end)} ${esc(ez.label)}</p>`;
+  }
+  function calCard(x) {
+    const key = calKey(x), open = !!ui.cal.open[key], id = "cx" + (calCard.n = (calCard.n || 0) + 1);
+    let who = x.kind === "appt" && x.who ? String(x.who).replace(/\s*\([^)]*\)/g, "").split(/[,;]/)[0].trim() : "";   // name only on the row; full text in details
+    if (who && String(x.title).toLowerCase().includes(who.toLowerCase())) who = "";
+    return `<article class="cal-ev k-${x.kind}${x.done ? " done" : ""}${open ? " open" : ""}" style="--tc:${x.col}">
+      <button type="button" class="cal-row" data-calx="${esc(key)}" aria-expanded="${open}" aria-controls="${id}">
+        <span class="cal-when">${calTimeShort(x)}</span>
+        <span class="cal-who"><b>${x.emo ? esc(x.emo) + " " : ""}${esc(x.title)}</b>${who || x.flags.length ? `<span class="cal-l2">${who ? `<span class="cal-wn">${esc(who)}</span>` : ""}${x.flags.map(([c, l]) => `<span class="chip ${c}">${esc(calShortFlag(l))}</span>`).join("")}</span>` : ""}</span>
+        <span class="cal-chev" aria-hidden="true">›</span>
+      </button>
+      <div class="cal-body cal-det" id="${id}"${open ? "" : " hidden"}>
+        ${calRange(x)}
+        ${x.k ? `<p class="cal-k">${esc(x.k)}${x.done ? " · done" : ""}</p>` : ""}${x.sub ? `<p class="small muted">${esc(x.sub)}</p>` : ""}
+        ${(fl => fl.length ? `<div class="tags">${fl.map(([c, l]) => `<span class="chip ${c}">${esc(l)}</span>`).join("")}</div>` : "")(x.flags.filter(([, l]) => calShortFlag(l) !== l))}
+        ${calAlso(x)}
+        ${x.orig ? `<p class="cal-orig small">🕑 As written: ${esc(x.orig)}</p>` : ""}${x.note ? `<p class="small muted">${linkify(x.note)}</p>` : ""}</div>
+    </article>`;
+  }
+  function calDayHead(day, today) {
+    const rel = day === today ? "Today" : day === addDays(today, 1) ? "Tomorrow" : day === addDays(today, -1) ? "Yesterday" : "";
+    return `<h2 class="cal-day${day === today ? " today" : ""}">${rel ? `<b>${rel}</b> · ` : ""}${dayLong(day)}<span class="cal-dz">${esc(zoneForDate(day).label)}</span></h2>`;
+  }
+  function calGroups(list, today, withToday) {
+    const g = {}; list.forEach((x) => (g[x.day] = g[x.day] || []).push(x));
+    if (withToday && !g[today]) g[today] = [];   // Today is always shown (highlighted), even when empty
+    return Object.keys(g).sort().map((d) => `<section class="cal-grp">${calDayHead(d, today)}${g[d].map(calCard).join("") || `<p class="muted small cal-empty">Nothing booked today.</p>`}</section>`).join("");
+  }
+  function viewCalendar() {
+    const C = ui.cal, all = calItems(), today = calToday();
+    if (!C.ym) C.ym = today.slice(0, 7);
+    if (!C.sel) C.sel = today;
+    const upc = all.filter((x) => x.day >= today && !x.done), past = all.filter((x) => x.day < today || x.done);
+    const nx = upc.find((x) => x.kind !== "todo" && (!x.t || x.t.getTime() > Date.now() - 3600000));
+    const hi = nx ? `<div class="cal-hi"><span>Next up</span><b>${esc(nx.title)}</b><span>${nx.day === today ? "Today" : dayShort(nx.day)}${nx.t ? " · " + timeIn(nx.z.tz, nx.t) + " " + esc(nx.z.label) : ""}</span></div>`
+      : `<div class="cal-hi"><b>No calls coming up</b></div>`;
+    const seg = `<div class="seg cal-seg"><button type="button" data-calv="agenda" aria-pressed="${C.view === "agenda"}">📋 Agenda</button><button type="button" data-calv="month" aria-pressed="${C.view === "month"}">🗓️ Month</button></div>`;
+    const A = calZ().A, also = A.length ? `<div class="cal-also-row"><span class="small muted">Also show:</span>${[["", "Off"]].concat(A.map((z) => [z.tz, z.label])).map(([tz, l]) =>
+      `<button type="button" class="chip cal-chip" data-calalso="${esc(tz)}" aria-pressed="${C.also === tz}">${esc(l)}</button>`).join("")}</div>` : "";
+    const zl = zoneForDate(today).label;
+    const intro = `<p class="count">Read-only. Times are shown in <b>your local time for each day</b> (today: ${esc(zl)}). The original wording is kept under each call.</p>`;
+    let body;
+    if (C.view === "month") {
+      const [y, m] = C.ym.split("-").map(Number), first = `${C.ym}-01`, start = addDays(first, -new Date(Date.UTC(y, m - 1, 1)).getUTCDay());
+      const by = {}; all.forEach((x) => (by[x.day] = by[x.day] || []).push(x));
+      const cells = []; for (let i = 0; i < 42; i++) { const d = addDays(start, i); if (i >= 35 && d.slice(0, 7) !== C.ym) break; cells.push(d); }
+      const grid = cells.map((d) => { const L = by[d] || [], out = d.slice(0, 7) !== C.ym;
+        return `<button type="button" class="cal-cell${out ? " out" : ""}${d === today ? " today" : ""}${d === C.sel ? " sel" : ""}${L.length ? " has" : ""}" data-cald="${d}" aria-label="${dayLong(d)}${L.length ? ", " + L.length + " item" + (L.length > 1 ? "s" : "") : ""}">
+          <span class="cal-n">${Number(d.slice(8))}</span>${L.slice(0, 2).map((x) => `<span class="cal-lbl" style="--tc:${x.col}">${esc((x.emo ? x.emo + " " : "") + String(x.title).replace(/^(The )/, "").split(/[\s(/–-]+/)[0])}</span>`).join("")}${L.length > 2 ? `<span class="cal-more">+${L.length - 2}</span>` : ""}
+          <span class="cal-dots">${L.slice(0, 4).map((x) => `<i style="--tc:${x.col}"></i>`).join("")}</span></button>`; }).join("");
+      const title = new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("en-US", { timeZone: "UTC", month: "long", year: "numeric" });
+      const selL = by[C.sel] || [];
+      body = `<div class="card cal-month"><div class="cal-nav"><button type="button" class="btn sm" data-calm="-1" aria-label="Previous month">‹</button><b>${title}</b><button type="button" class="btn sm" data-calm="1" aria-label="Next month">›</button></div>
+        <div class="cal-wd">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => `<span>${w}</span>`).join("")}</div><div class="cal-grid">${grid}</div>
+        ${C.ym !== today.slice(0, 7) || C.sel !== today ? `<button type="button" class="btn sm cal-todaybtn" data-caltoday="1">Back to today</button>` : ""}</div>
+        <section class="cal-grp">${calDayHead(C.sel, today)}${selL.map(calCard).join("") || `<p class="muted small pad">Nothing on this day.</p>`}</section>`;
+    } else {
+      body = (calGroups(upc, today, true) || `<p class="muted center pad">Nothing coming up.</p>`) +
+        (past.length ? `<details class="fold grp" data-g="calpast"${ui.groups.calpast ? " open" : ""}><summary>Earlier &amp; done<span class="n">${past.length}</span></summary><div class="inner">${calGroups(past.slice().reverse(), today)}</div></details>` : "");
+    }
+    return `${hi}${seg}${also}${intro}${body}`;
+  }
+
   /* ---------------- router ---------------- */
-  const VIEWS = { home: ["Do next", viewHome], todos: ["My To-Dos", viewTodos], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
+  const VIEWS = { home: ["Do next", viewHome], todos: ["My To-Dos", viewTodos], calendar: ["Calendar", viewCalendar], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
   const ALIAS = { top: "opps", strategy: "docs", legal: "docs" };
   function route() {
     let [tab, sub] = (location.hash.slice(1) || "home").split("/");
@@ -624,6 +759,7 @@
     tab = ALIAS[tab] || tab;
     if (tab === "opps" && sub) ui.list = sub;
     if (tab === "docs") ui.doc = sub || ui.doc;
+    if (tab === "calendar" && (sub === "month" || sub === "agenda")) ui.cal.view = sub;
     const v = VIEWS[tab] || VIEWS.home;
     document.querySelectorAll(".tabbar a").forEach((a) => (a.dataset.tab === (VIEWS[tab] ? tab : "home") ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
     $("#title").textContent = v[0];
@@ -652,6 +788,14 @@
     if (t.closest("[data-rejack]")) { (D.apps || []).filter((a) => a.rej && !a.arch).forEach((a) => (REJACK[akey("app", a)] = new Date().toISOString())); saveJ(RAKEY, REJACK); render(); return; }
     const db = t.closest("[data-del]"); if (db) { e.preventDefault(); deleteEntry(db.dataset.del); return; }
     const rb = t.closest("[data-restore]"); if (rb) { e.preventDefault(); setArchived(rb.dataset.restore, false); return; }
+    const cv = t.closest("[data-calv]"); if (cv) { ui.cal.view = cv.dataset.calv; history.replaceState(null, "", "#calendar/" + ui.cal.view); render(); return; }
+    const cm = t.closest("[data-calm]"); if (cm) { const [y, m] = ui.cal.ym.split("-").map(Number), d = new Date(Date.UTC(y, m - 1 + Number(cm.dataset.calm), 1)); ui.cal.ym = d.toISOString().slice(0, 7); render(); return; }
+    const cd = t.closest("[data-cald]"); if (cd) { ui.cal.sel = cd.dataset.cald; ui.cal.ym = ui.cal.sel.slice(0, 7); render(); return; }
+    if (t.closest("[data-caltoday]")) { ui.cal.sel = calToday(); ui.cal.ym = ui.cal.sel.slice(0, 7); render(); return; }
+    const cx = t.closest("[data-calx]"); if (cx) { const k = cx.dataset.calx, o = cx.getAttribute("aria-expanded") !== "true", det = document.getElementById(cx.getAttribute("aria-controls"));
+      if (o) ui.cal.open[k] = 1; else delete ui.cal.open[k];
+      cx.setAttribute("aria-expanded", String(o)); cx.closest(".cal-ev").classList.toggle("open", o); if (det) det.hidden = !o; return; }
+    const ca = t.closest("[data-calalso]"); if (ca) { ui.cal.also = ca.dataset.calalso; render(); return; }
     if (t.closest("a") || t.closest("[data-stop]") || t.closest("summary")) return;
     const l = t.closest("[data-list]"); if (l) { ui.list = l.dataset.list; history.replaceState(null, "", "#opps/" + ui.list); render(); return; }
     if (t.closest("[data-more]")) { ui.tr.limit += 60; render(); return; }
