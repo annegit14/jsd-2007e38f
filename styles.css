@@ -424,3 +424,8 @@ h2.cal-day.today{background:color-mix(in srgb,var(--accent) 14%,var(--card));bor
 .cal-dots i{width:6px;height:6px;border-radius:50%;background:var(--tc)}
 .cal-todaybtn{display:block;margin:8px auto 0}
 .cal-empty{margin:0 4px 6px}
+
+.mnotes{margin:8px 0 2px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--accent) 10%,var(--card));border:1px solid var(--line)}
+.mnotes .mn-h{font-weight:700;font-size:14px;margin:0 0 6px;color:var(--ink)}
+.mnotes ul{margin:0;padding-left:20px}
+.mnotes li{font-size:14.5px;line-height:1.45;margin:0 0 6px;color:var(--ink)}

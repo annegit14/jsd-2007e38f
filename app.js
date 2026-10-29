@@ -641,7 +641,7 @@
       if (s.proposed) flags.push(["info", "Proposed · not confirmed"]);
       if (s.tz_unconfirmed) flags.push(["ok", "Time zone unconfirmed"]);
       out.push({ kind: "appt", day, t, end, z, emo: "", title: v.company, k: s.k, who: v.who || "", sub: [v.role, v.who].filter(Boolean).join(" · "),
-        orig: s.time || "", note: s.cal_note || s.note || "", flags, done: !!s.done, col: calCol(v.company) });
+        orig: s.time || "", note: s.cal_note || s.note || "", mnotes: Array.isArray(s.mnotes) ? s.mnotes : null, flags, done: !!s.done, col: calCol(v.company) });
     }));
     calZ().E.forEach((e) => {
       const t = tParse(e.start_utc), z = t ? zoneForInstant(t) : zoneForDate(e.d), end = tParse(e.end_utc);
@@ -702,7 +702,7 @@
         ${x.k ? `<p class="cal-k">${esc(x.k)}${x.done ? " · done" : ""}</p>` : ""}${x.sub ? `<p class="small muted">${esc(x.sub)}</p>` : ""}
         ${(fl => fl.length ? `<div class="tags">${fl.map(([c, l]) => `<span class="chip ${c}">${esc(l)}</span>`).join("")}</div>` : "")(x.flags.filter(([, l]) => calShortFlag(l) !== l))}
         ${calAlso(x)}
-        ${x.orig ? `<p class="cal-orig small">🕑 As written: ${esc(x.orig)}</p>` : ""}${x.note ? `<p class="small muted">${linkify(x.note)}</p>` : ""}</div>
+        ${x.orig ? `<p class="cal-orig small">🕑 As written: ${esc(x.orig)}</p>` : ""}${x.note ? `<p class="small muted">${linkify(x.note)}</p>` : ""}${x.mnotes ? `<div class="mnotes"><p class="mn-h">📝 Meeting notes</p><ul>${x.mnotes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}</div>
     </article>`;
   }
   function calDayHead(day, today) {
