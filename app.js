@@ -463,7 +463,7 @@
     const c = catOf("act", a);
     return `<article class="row crow c-${c}${open ? " open" : ""}" data-id="${esc(id)}" tabindex="0" role="button" aria-expanded="${open}">
       <div class="top"><h3>${esc(a.co)}</h3>${dueChip(effDue("act", a), effDue("act", a) !== a.due)}</div>
-      <div class="tags">${catChip(c)}${mbChip(a.mb)}${worthChip(a.ws)}${approvalFor(a.co) ? `<a class="chip ok" href="#approvals">Needs your OK</a>` : ""}</div>
+      <div class="tags">${catChip(c)}${mbChip(a.mb)}${worthChip(a.ws)}</div>
       ${a.rm ? `<span class="chip info rmtag">Worth one more follow-up</span>` : ""}
       ${a.nx ? `<p class="nx">${linkify(a.nx)}</p>` : ""}${open ? "" : notePv("act", a)}
       ${open ? rowDetail([["Removed because", a.rm], ["Role", a.role], ["Status", a.st], ["Fit", a.fit], ["Applied", a.d && fmtDate(a.d)], ["Where", a.loc], ["Worth it", worthDetail(a)]], a.u,
@@ -528,7 +528,7 @@
     const sec = ["job", "act", "app"].map((t) => { const r = A.filter((a) => a.t === t); return r.length ? `<h2 class="sec">${lab[t]} · ${r.length}</h2><div class="card list">${r.map(row).join("")}</div>` : ""; }).join("");
     return `<h2 class="listhead">Archived by me (${A.length})</h2>
       <div class="autodel-box">${autoDelCtl()}<p class="small muted">${autoDelOn() ? `On: entries you archived more than ${AD_DAYS} days ago are deleted from this app when it opens.` : "Off: nothing is deleted automatically."} Applies to this device only.</p></div>
-      <p class="count">Hidden from Today, Jobs and Tracker. Tap Restore to bring an entry back on this device. Entries marked "archived on all devices" can only be restored by asking for them to be taken off the archive list. (Older US applications archived on Oct 11 are under Tracker › Archived.)</p>
+      <p class="count">Hidden from Today and Jobs. Tap Restore to bring an entry back on this device. Entries marked "archived on all devices" can only be restored by asking for them to be taken off the archive list.</p>
       ${sec || `<p class="muted center pad">Nothing archived yet. Open any job, application or Act now item and tap Archive.</p>`}`;
   }
   function removedFold() {
@@ -550,6 +550,9 @@
     return TR;
   }
   function viewTracker() {
+    return viewCRM(); // v34: the Applications list was retired; this tab is now Contacts only
+  }
+  function viewTrackerApplicationsRetired() {
     const s = ui.tr, T = trackerBase(), q = (s.q || "").toLowerCase();
     const seg = `<div class="seg" role="tablist"><button data-trv="apps" aria-pressed="${s.view !== "crm"}">Applications</button><button data-trv="crm" aria-pressed="${s.view === "crm"}">Contacts</button></div>`;
     if (s.view === "crm") return seg + viewCRM();
@@ -607,20 +610,6 @@
         ${ENC ? `<button class="btn sm" data-lock>Lock &amp; forget this device</button>` : ""}</div>`;
   }
 
-  const approvalFor = (co) => (D.approvals || []).find((x) => x.status === "pending" && nk(x.company).slice(0, 8) === nk(co).slice(0, 8));
-  function viewApprovals() {
-    const A = D.approvals || [], lab = { pending: ["Waiting for your OK", "ok"], scheduled: ["Approved · scheduled", "info"], sent: ["Sent", "good"], skipped: ["Skipped", ""] };
-    const order = { pending: 0, scheduled: 1, sent: 2, skipped: 3 };
-    const L = A.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
-    return `<p class="count">Read-only. Approve or change wording in chat; this app never sends anything.</p>
-      <div class="card list">${L.map((x, i) => { const id = "ap:" + i, open = ui.open.has(id), [l, c] = lab[x.status] || [x.status, ""];
-        return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}">
-          <div class="top"><h3>${esc(x.company)}</h3><span class="chip ${c}">${esc(l)}</span></div>
-          <div class="sub">${mbChip({ Gmail: "G", iCloud: "I" }[x.mailbox])}<span class="role">${esc(x.planned || "")}</span></div>
-          <p class="nx">${esc(x.summary || "")}</p>
-          ${open ? `<div class="detail" data-stop><dl class="grid"><dt>To</dt><dd>${esc(x.to || "")}${x.person ? " (" + esc(x.person) + ")" : ""}</dd><dt>Subject</dt><dd>${esc(x.subject || "")}</dd></dl>
-            ${x.text ? `<pre class="mailtext">${esc(x.text)}</pre>` : ""}${x.text_note ? `<p class="small muted">${esc(x.text_note)}</p>` : ""}</div>` : ""}</article>`; }).join("") || `<p class="muted center pad">Nothing waiting for approval.</p>`}</div>`;
-  }
   /* ---------------- v28: My To-Dos (things only Anne does herself; Done ticks saved on this device) ---------------- */
   const TKEY = "ag-dash-todo-done";   // { id: ISO time ticked }. NOT cleared by "Lock & forget".
   let TD = loadJ(TKEY);
@@ -784,7 +773,7 @@
   }
 
   /* ---------------- router ---------------- */
-  const VIEWS = { home: ["Do next", viewHome], todos: ["My To-Dos", viewTodos], calendar: ["Calendar", viewCalendar], approvals: ["Approvals", viewApprovals], opps: ["Opportunities", viewOpps], tracker: ["Tracker", viewTracker], docs: ["Docs", viewDocs] };
+  const VIEWS = { home: ["Do next", viewHome], todos: ["My To-Dos", viewTodos], calendar: ["Calendar", viewCalendar], opps: ["Opportunities", viewOpps], tracker: ["Contacts", viewTracker], docs: ["Docs", viewDocs] };
   const ALIAS = { top: "opps", strategy: "docs", legal: "docs" };
   function route() {
     let [tab, sub] = (location.hash.slice(1) || "home").split("/");
@@ -891,8 +880,6 @@
     applyDeleted();   // also builds ITEMS
     if (swept) setTimeout(() => toast(`${swept} archived entr${swept === 1 ? "y" : "ies"} older than ${AD_DAYS} days deleted (auto-delete is on)`), 300);
     $("#updated").textContent = D.version ? `${D.version} · ${String(D.built || "").replace(/ \(Chiang Mai\)$/, "")}` : "Updated " + (D.generated || "").slice(0, 10);
-    const np = (D.approvals || []).filter((x) => x.status === "pending").length, bd = document.querySelector('.tabbar a[data-tab="approvals"] .badge');
-    if (bd) { bd.textContent = np || ""; bd.hidden = !np; }
     $("#lock").hidden = true;
     route();
   }

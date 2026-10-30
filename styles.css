@@ -354,7 +354,7 @@ body[data-tab=todos]{--accent:var(--t-todos)}
 .todo.done h3{text-decoration:line-through;text-decoration-thickness:2px}
 
 /* ---------- v29: Calendar tab (plum accent; read-only agenda + month grid) ---------- */
-.tabbar{grid-template-columns:repeat(7,1fr)}
+.tabbar{grid-template-columns:repeat(6,1fr)}
 @media (max-width:420px){ .tabbar a{font-size:9.5px} .tabbar svg{width:21px;height:21px} }
 @media (max-width:360px){ .tabbar a{font-size:8.5px} }
 :root{--t-cal:#86198f}
