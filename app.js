@@ -149,7 +149,7 @@
   const worthChip = (v) => (v != null ? `<span class="worth-s" title="Worth it (0-10)">★ ${v}</span>` : "");
   // v23 status categories: one colour each, friendly words only
   const CLOSED_RX = /archived|closed|reject|not selected|withdrawn|no longer|declin|not viable|position filled|not moving forward|no positions|no vacanc/i;
-  const CATS = { offer: "Offer", interview: "Interview", followup: "Follow-up due", scheduled: "Scheduled", waiting: "Waiting to hear", saved: "Saved", archived: "Archived" };
+  const CATS = { offer: "Offer", interview: "Meeting", followup: "Follow-up due", scheduled: "Scheduled", waiting: "Waiting to hear", saved: "Saved", archived: "Archived" };
   function catOf(t, x) {
     const st = String(x.st || "");
     if (t === "app" && (x.arch || isArch("app", x))) return "archived";
@@ -367,9 +367,17 @@
 
   /* ---------------- views ---------------- */
   const byId = (id) => D._idx[id];
+  // v33 Spare Time: gig platforms to work on in free time
+  function spareCard() {
+    const S = D.spare || [];
+    if (!S.length) return "";
+    const open = ui.groups["spare"] ?? true;
+    const row = (s, i) => `<li class="sp alt${i % 4}"><div class="top"><b>${esc(s.emoji || "")} ${esc(s.name)}</b>${s.link ? `<a class="small" href="${esc(s.link)}" target="_blank" rel="noopener noreferrer">Open →</a>` : ""}</div><p class="small muted">${esc(s.status || "")}</p><p class="small">${esc(s.next || "")}</p></li>`;
+    return `<details class="fold grp" data-g="spare"${open ? " open" : ""}><summary>Spare time · gig platforms<span class="n">${S.length}</span></summary><ul class="spare inner">${S.map(row).join("")}</ul></details>`;
+  }
   function viewHome() {
     const pend = (D.pending || []).map((p, i) => { const id = "pend:" + i, open = ui.open.has(id);
-      return `<li class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><b>${esc(p.when)}</b><span class="nx">${linkify(p.text)}</span></li>`; }).join("");
+      return `<li class="row alt${i % 4}${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><b>${esc(p.when)}</b><span class="nx">${linkify(p.text)}</span></li>`; }).join("");
     const groups = {};
     const actV = (D.act || []).filter((a) => !isArch("act", a)), actA = (D.act || []).length - actV.length;
     actV.forEach((a) => { const k = a.pr || "Other"; (groups[k] = groups[k] || []).push(a); });
@@ -405,24 +413,50 @@
       ${more}
       ${interviewsCard()}
       ${nextup}
+      ${spareCard()}
       <a class="btn more" href="#opps/overall">Top 25 opportunities →</a>`;
   }
   const dueChip = (due, snoozed) => { if (!due) return ""; const now = due <= todayIso(); return `<span class="chip ${now ? "ok" : "info"}">${snoozed ? "💤 " : now ? "Today · " : ""}${fmtDate(due)}</span>`; };
   // A4 New replies (filled by the daily Gmail triage; suggestions only, Anne confirms)
+  // replies are grouped into one thread per company/person (underlying data stays one entry per email)
+  const repKey = (c) => { const x = String(c || "").toLowerCase();
+    if (/jinsong|wuxi haisi/.test(x)) return "jinsong";
+    if (/florida (health|healthcare) law/.test(x)) return "florida";
+    if (/medical travel company|tmtc|bharat/.test(x)) return "tmtc";
+    if (/squire patton|wyand/.test(x)) return "squire";
+    return nk(x.replace(/\s*\(.*$/, "")) || x; };
+  const REP_NAME = { jinsong: "Jinsong (Wuxi Haisi Medical Consulting)", florida: "Florida Healthcare Law Firm (Jennifer Keenan)", tmtc: "The Medical Travel Company (Bharat Bhatt)", squire: "Squire Patton Boggs (John Wyand)" };
   function repliesCard() {
     const R = (D.replies || []).filter((r) => r && !/closed/i.test(r.class || ""));
     if (!R.length) return `<div class="card replies empty"><b>New replies</b><span class="muted small"> · nothing new yet. The daily Gmail check adds replies here with a suggested next step.</span></div>`;
-    return `<h2 class="sec">New replies · ${R.length}</h2><div class="card list">${R.map((r, i) => { const id = "rep:" + i, open = ui.open.has(id);
-      return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><div class="top"><h3>${esc(r.company)}</h3>${mbChip({ Gmail: "G", iCloud: "I", "Yahoo-legacy": "Y", Platform: "P" }[r.mailbox])}<span class="date">${fmtDate(r.date)}</span></div>
-        <p class="nx">${esc(r.summary || "")}</p>${r.suggested_status ? `<p class="small"><span class="chip good">Suggested</span> ${esc(r.suggested_status)}${r.suggested_next ? " → " + esc(r.suggested_next) : ""}</p>` : ""}</article>`; }).join("")}</div>`;
+    const G = {};
+    R.forEach((r) => { const k = repKey(r.company); (G[k] = G[k] || []).push(r); });
+    const rd = (r) => String(r.date || "");
+    const groups = Object.keys(G).map((k) => ({ k, items: G[k].slice().sort((a, b) => rd(b).localeCompare(rd(a))) }))
+      .sort((a, b) => rd(b.items[0]).localeCompare(rd(a.items[0])));
+    const one = (r) => `<p class="nx"><span class="date small">${fmtDate(rd(r).slice(0, 10))}</span> · ${esc(r.summary || r.quoted || "")}</p>${r.suggested_status ? `<p class="small"><span class="chip good">Suggested</span> ${esc(r.suggested_status)}${r.suggested_next ? " → " + esc(r.suggested_next) : ""}</p>` : ""}`;
+    return `<h2 class="sec">New replies · ${groups.length}</h2><div class="card list">${groups.map((g) => { const id = "repg:" + g.k, open = ui.open.has(id), L = g.items[0], n = g.items.length;
+      return `<article class="row${open ? " open" : ""}" data-id="${id}" tabindex="0" role="button" aria-expanded="${open}"><div class="top"><h3>${esc(REP_NAME[g.k] || L.company)}</h3>${mbChip({ Gmail: "G", iCloud: "I", "Yahoo-legacy": "Y", Platform: "P" }[L.mailbox])}${n > 1 ? `<span class="chip info">${n} replies</span>` : ""}<span class="date">${fmtDate(rd(L).slice(0, 10))}</span></div>
+        ${open ? g.items.map(one).join("") : one(L)}</article>`; }).join("")}</div>`;
   }
-  // A8 interview tracker
+  // A8 meetings tracker: upcoming companies first, then upcoming attorneys, then a collapsed grayed-out "Past meetings" archive
   function interviewsCard() {
     const I = D.interviews || [];
     if (!I.length) return "";
-    return `<h2 class="sec">Interviews</h2>${I.map((v) => `<div class="card iv"><div class="top"><b>${esc(v.company)}</b>${v.doc ? `<a class="small" href="#docs/${esc(v.doc)}">Brief →</a>` : ""}</div>
+    const isAtt = (v) => /attorney|law (firm|group)|legal/i.test([v.role, v.company].join(" "));
+    const nowMs = Date.now();
+    const isPast = (v) => (v.stages || []).length > 0 && (v.stages || []).every((s) => s.done || (s.start_utc && Date.parse(s.start_utc) + (s.dur_min || 60) * 60000 < nowMs));
+    const when = (v) => { const st = v.stages || [], s = st.find((x) => !x.done) || st[st.length - 1] || {}; return String(s.start_utc || s.d || "9999"); };
+    const lastWhen = (v) => (v.stages || []).map((s) => String(s.start_utc || s.d || "")).sort().pop() || "";
+    const notes = (v) => (v.stages || []).filter((s) => Array.isArray(s.mnotes) && s.mnotes.length).map((s) => `<details class="mnotes-d" data-stop><summary class="small">Meeting notes (${s.mnotes.length})</summary><ul class="small">${s.mnotes.map((n) => `<li>${linkify(n)}</li>`).join("")}</ul></details>`).join("");
+    const card = (v, past, ci) => `<div class="card iv alt${(ci || 0) % 4}${past ? " past" : ""}"><div class="top"><b>${esc(v.company)}</b>${past ? `<span class="chip">Past</span>` : ""}${v.doc ? `<a class="small" href="#docs/${esc(v.doc)}">Brief →</a>` : ""}</div>
       <p class="small muted">${esc(v.role || "")}${v.who ? " · " + esc(v.who) : ""}</p>
-      ${v.practice ? `<p class="practice small">💡 ${esc(v.practice)}</p>` : ""}<ol class="stages">${(v.stages || []).map((st) => `<li class="${st.done ? "done" : ""}"><span class="dot"></span><b>${esc(st.k)}</b> <span class="small muted">${st.d ? fmtDate(st.d) : ""}${st.time ? " · " + esc(st.time) : ""}</span>${st.note ? `<span class="small muted"> · ${esc(st.note)}</span>` : ""}</li>`).join("")}</ol></div>`).join("")}`;
+      ${v.practice ? `<p class="practice small">💡 ${esc(v.practice)}</p>` : ""}<ol class="stages">${(v.stages || []).map((st) => `<li class="${st.done ? "done" : ""}"><span class="dot"></span><b>${esc(st.k)}</b> <span class="small muted">${st.d ? fmtDate(st.d) : ""}${st.time ? " · " + esc(st.time) : ""}</span>${st.note ? `<span class="small muted"> · ${esc(st.note)}</span>` : ""}</li>`).join("")}</ol>${notes(v)}</div>`;
+    const byWhen = (a, b) => when(a).localeCompare(when(b));
+    const up = I.filter((v) => !isPast(v)), past = I.filter(isPast).sort((a, b) => lastWhen(b).localeCompare(lastWhen(a)));
+    const co = up.filter((v) => !isAtt(v)).sort(byWhen), at = up.filter(isAtt).sort(byWhen);
+    const pOpen = !!ui.groups["pastmeet"];
+    return `<h2 class="sec">Meetings · Companies</h2>${co.map((v, i) => card(v, false, i)).join("") || `<p class="muted small">No upcoming company meetings.</p>`}${at.length ? `<h2 class="sec">Meetings · Attorneys</h2>${at.map((v, i) => card(v, false, i)).join("")}` : ""}${past.length ? `<details class="fold grp pastmeet" data-g="pastmeet"${pOpen ? " open" : ""}><summary>Past meetings<span class="n">${past.length}</span></summary><div class="inner">${past.map((v, i) => card(v, true, i)).join("")}</div></details>` : ""}`;
   }
   function actionCard(a, id) {
     const open = ui.open.has(id);

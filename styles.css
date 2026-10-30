@@ -429,3 +429,23 @@ h2.cal-day.today{background:color-mix(in srgb,var(--accent) 14%,var(--card));bor
 .mnotes .mn-h{font-weight:700;font-size:14px;margin:0 0 6px;color:var(--ink)}
 .mnotes ul{margin:0;padding-left:20px}
 .mnotes li{font-size:14.5px;line-height:1.45;margin:0 0 6px;color:var(--ink)}
+/* v32: past meetings archive (grayed out, collapsed) */
+.card.iv.past{opacity:.6;filter:grayscale(1)}
+details.pastmeet>summary{color:var(--muted)}
+.mnotes-d{margin:4px 0 2px}.mnotes-d ul{margin:4px 0 0 18px;padding:0}
+
+/* v33: alternating row colors (mint, blue, green, blue) in Coming up and Meetings */
+.pending li.row.alt0,.card.iv.alt0{background:#dff5ea}
+.pending li.row.alt1,.card.iv.alt1{background:#dcebfb}
+.pending li.row.alt2,.card.iv.alt2{background:#d3efd0}
+.pending li.row.alt3,.card.iv.alt3{background:#dcebfb}
+.pending li.row,.card.iv{color:#1b2a22}
+.pending li.row .muted,.card.iv .muted{color:#4a5a52}
+
+/* v33: Spare Time section */
+ul.spare{list-style:none;margin:0;padding:0}
+ul.spare li.sp{padding:8px 12px;color:#1b2a22}
+ul.spare li.sp p{margin:2px 0 0}
+ul.spare li.sp .muted{color:#4a5a52}
+ul.spare li.sp.alt0{background:#dff5ea}ul.spare li.sp.alt1{background:#dcebfb}ul.spare li.sp.alt2{background:#d3efd0}ul.spare li.sp.alt3{background:#dcebfb}
+ul.spare li.sp .top{display:flex;justify-content:space-between;gap:8px;align-items:center}
